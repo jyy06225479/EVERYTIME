@@ -44,7 +44,21 @@ nav.main button { text-align: left; background: none; border: 0; border-left: 3p
 nav.main button:hover { background: var(--soft); }
 nav.main button.on { color: var(--accent); font-weight: 700; border-left-color: var(--accent); background: var(--accent-soft); }
 .content { min-width: 0; }
-.boardhead { border-bottom: 2px solid var(--fg); padding-bottom: 12px; margin-bottom: 16px; }
+.boardhead { border-bottom: 2px solid var(--fg); padding-bottom: 12px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
+.boardhead > div { min-width: 0; }
+.boardhead .btn { flex-shrink: 0; padding: 9px 18px; font-weight: 700; }
+.badge.pin { background: var(--accent); color: #fff; }
+.card.pinned { background: var(--accent-soft); border-color: #f2cbc5; }
+.adminbox { border: 1px dashed #e0a49b; border-radius: 8px; padding: 10px 12px 12px; display: grid; gap: 10px; margin: 0; }
+.adminbox legend { font-weight: 700; font-size: .85rem; color: var(--accent); padding: 0 6px; }
+.colors { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { position: relative; display: inline-flex !important; }
+.chip input { position: absolute; opacity: 0; pointer-events: none; }
+.chip span { display: inline-block; padding: 5px 11px; border: 1px solid var(--line); border-radius: 999px; cursor: pointer; font-weight: 700; font-size: .85rem; background: #fff; }
+.chip input:checked + span { border-color: currentColor; box-shadow: 0 0 0 1px currentColor inset; }
+.chip input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.menucolors { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 8px 8px; max-width: 230px; }
+.menu .menucolors button { padding: 6px 9px; font-weight: 700; border: 1px solid var(--line); border-radius: 999px; font-size: .82rem; }
 .boardhead h1 { margin: 0; font-size: 1.4rem; }
 .boardhead p { margin: 4px 0 0; color: var(--muted); font-size: .9rem; }
 main { padding: 0; }
@@ -194,7 +208,6 @@ table.tt { border-collapse: collapse; width: 100%; min-width: 520px; font-size: 
     <div class="box me" id="meBox" hidden>
       <div class="who" id="meName"></div>
       <div class="mebtns">
-        <button class="btn" id="goWrite" hidden>글쓰기</button>
         <button class="btn ghost" id="logout">로그아웃</button>
       </div>
     </div>
@@ -262,14 +275,31 @@ const fs = getFirestore(fb);
 let rtdb = null;
 try { rtdb = getDatabase(fb); } catch (e) { console.warn("Realtime Database 연결 실패", e); }
 
+// 일반 게시판 = Firestore 컬렉션 이름. 게시판을 더 만들려면 여기, TABS, MENU_GROUPS, BOARD_INFO, 보안 규칙의 isBoard 에 추가하세요.
+const BOARDS = ["free", "grade1", "grade2", "grade3", "studyboard"];
+const isBoard = t => BOARDS.includes(t);
 const TABS = [
-  ["lost", "분실물"], ["free", "자유게시판"], ["meal", "급식"],
-  ["time", "시간표"], ["event", "행사"], ["study", "공부방"],
+  ["lost", "분실물"], ["free", "자유게시판"], ["grade1", "1학년 게시판"], ["grade2", "2학년 게시판"],
+  ["grade3", "3학년 게시판"], ["studyboard", "공부 게시판"],
+  ["meal", "급식"], ["time", "시간표"], ["event", "행사"], ["study", "공부방"],
 ];
-const MENU_GROUPS = [["게시판", ["lost", "free"]], ["학교생활", ["meal", "time", "event"]], ["공부", ["study"]]];
+const MENU_GROUPS = [
+  ["게시판", ["lost", "free", "grade1", "grade2", "grade3", "studyboard"]],
+  ["학교생활", ["meal", "time", "event"]],
+  ["공부", ["study"]],
+];
+// 관리자만 쓸 수 있는 제목 색 (보안 규칙의 titleColor 목록과 같게 유지)
+const TITLE_COLORS = {
+  red: ["빨강", "#e03131"], orange: ["주황", "#e8590c"], yellow: ["노랑", "#d9a400"], green: ["초록", "#2f9e44"],
+  blue: ["파랑", "#1c7ed6"], navy: ["남색", "#364fc7"], purple: ["보라", "#7048e8"], pink: ["분홍", "#d6336c"], gray: ["회색", "#868e96"],
+};
 const BOARD_INFO = {
   lost: ["분실물 게시판", "잃어버린 물건, 주운 물건을 올리고 주인을 찾아요."],
   free: ["자유게시판", "익명으로 자유롭게 이야기해요. 서로 존중해 주세요."],
+  grade1: ["1학년 게시판", "1학년끼리 나누는 이야기예요."],
+  grade2: ["2학년 게시판", "2학년끼리 나누는 이야기예요."],
+  grade3: ["3학년 게시판", "3학년끼리 나누는 이야기예요. 입시 정보도 나눠요."],
+  studyboard: ["공부 게시판", "질문, 자료, 공부 방법을 나눠요."],
   meal: ["오늘의 급식", "가림고등학교 조식·중식·석식 메뉴예요."],
   time: ["시간표", "학년과 반을 고르면 이번 주 시간표를 보여줘요."],
   event: ["학교 행사", "학사일정과 학교 행사를 한눈에 봐요."],
@@ -280,19 +310,24 @@ let me = null;
 let tab = "lost";
 let view = "list";                 // list | write | detail
 let currentColl = null, currentId = null, comments = [];
-const data = { posts: [], free: [], events: [] };
-const loaded = { posts: false, free: false, events: false };
+const data = { posts: [], events: [] };
+const loaded = { posts: false, events: false };
+BOARDS.forEach(b => { data[b] = []; loaded[b] = false; });
 const subs = {};
 let unsubComments = null;
 let openMenuKey = null, menuSure = false;
 let lostFilter = { kind: "", q: "", category: "", showResolved: false };
-let freeQ = "";
+const boardQ = {};
+let menuColor = false;
 
 const app = document.getElementById("app");
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const safeImg = s => typeof s === "string" && s.startsWith("data:image/") ? esc(s) : "";
 const kindLabel = k => k === "lost" ? "잃어버렸어요" : "주웠어요";
+const titleStyle = p => TITLE_COLORS[p.titleColor] ? ` style="color:${TITLE_COLORS[p.titleColor][1]}"` : "";
+const pinBadge = p => p.pinned ? `<span class="badge pin">공지</span>` : "";
+const tsOf = d => d.createdAt?.toMillis ? d.createdAt.toMillis() : Date.now() + 1e12;   // 막 올린 글(시간 미정)은 맨 앞
 const ADMINS = ADMIN_EMAILS.map(e => String(e).trim().toLowerCase());
 const isAdmin = () => !!me && ADMINS.includes((me.email || "").toLowerCase());
 const pad = n => String(n).padStart(2, "0");
@@ -344,7 +379,6 @@ onAuthStateChanged(auth, async user => {
     Object.values(subs).forEach(u => u?.()); for (const k in subs) delete subs[k];
     for (const k in loaded) loaded[k] = false;
     unsubComments?.(); unsubComments = null;
-    $("goWrite").hidden = true;
     return renderLogin();
   }
   startStudyWatch();
@@ -379,21 +413,21 @@ function go(t) {
   $("nav").innerHTML = MENU_GROUPS.map(([g, keys]) =>
     `<div class="grp">${g}</div>` + keys.map(k => `<button data-tab="${k}" class="${k === tab ? "on" : ""}">${label[k]}</button>`).join("")).join("");
   const [title, sub] = BOARD_INFO[tab];
-  $("boardHead").innerHTML = `<h1>${title}</h1><p>${sub}</p>`;
-  $("goWrite").hidden = !(tab === "lost" || tab === "free" || (tab === "event" && isAdmin()));
-  $("goWrite").textContent = tab === "event" ? "행사 등록" : "글쓰기";
+  const canWrite = tab === "lost" || isBoard(tab) || (tab === "event" && isAdmin());
+  $("boardHead").innerHTML = `<div><h1>${title}</h1><p>${sub}</p></div>` +
+    (canWrite ? `<button class="btn" id="goWrite">${tab === "event" ? "행사 등록" : "글쓰기"}</button>` : "");
   updateStudybar();
   render();
 }
 $("nav").addEventListener("click", e => { const b = e.target.closest("button[data-tab]"); if (b) go(b.dataset.tab); });
 $("home").onclick = () => me ? go("lost") : renderLogin();
-$("goWrite").onclick = () => { view = "write"; render(); };
+$("boardHead").addEventListener("click", e => { if (e.target.closest("#goWrite")) { view = "write"; openMenuKey = null; render(); } });
 $("logout").onclick = async () => { await leaveRoom(); signOut(auth); };
 
 function render() {
   if (!me) return renderLogin();
   if (tab === "lost") return view === "write" ? renderLostWrite() : view === "detail" ? renderDetail() : renderLostList();
-  if (tab === "free") return view === "write" ? renderFreeWrite() : view === "detail" ? renderDetail() : renderFreeList();
+  if (isBoard(tab)) return view === "write" ? renderBoardWrite() : view === "detail" ? renderDetail() : renderBoardList();
   if (tab === "meal") return renderMeal();
   if (tab === "time") return renderTimetable();
   if (tab === "event") return view === "write" ? renderEventWrite() : renderEvents();
@@ -401,18 +435,31 @@ function render() {
 }
 
 // 컬렉션은 그 탭을 처음 열 때 한 번만 구독 (읽기 횟수 아끼기)
+const tabColl = () => tab === "lost" ? "posts" : tab === "event" ? "events" : isBoard(tab) ? tab : null;
 function ensure(coll) {
   if (subs[coll]) return;
   subs[coll] = () => {};   // 구독 중복 방지 (아래에서 진짜 해제 함수로 바뀜)
-  const q = coll === "events"
-    ? query(collection(fs, "events"), orderBy("date"), limit(200))
-    : query(collection(fs, coll), orderBy("createdAt", "desc"), limit(coll === "posts" ? 150 : 100));
-  subs[coll] = onSnapshot(q, snap => {
-    data[coll] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    loaded[coll] = true;
-    const mine = (coll === "posts" && tab === "lost") || (coll === "free" && tab === "free") || (coll === "events" && tab === "event");
-    if (mine && (view === "list" || view === "detail")) render();
-  }, fail);
+  const toDocs = snap => snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const refresh = () => { loaded[coll] = true; if (tabColl() === coll && (view === "list" || view === "detail")) render(); };
+  if (coll === "events") {
+    subs[coll] = onSnapshot(query(collection(fs, "events"), orderBy("date"), limit(200)),
+      snap => { data.events = toDocs(snap); refresh(); }, fail);
+    return;
+  }
+  // 최신 글 + 고정(공지) 글을 따로 받아서 합치기 → 오래된 공지도 항상 맨 위에
+  const raw = { main: [], pin: [] };
+  const merge = () => {
+    const seen = new Set();
+    data[coll] = [...raw.pin, ...raw.main]
+      .filter(d => !seen.has(d.id) && seen.add(d.id))
+      .sort((a, b) => (b.pinned === true) - (a.pinned === true) || tsOf(b) - tsOf(a));
+    refresh();
+  };
+  const u1 = onSnapshot(query(collection(fs, coll), orderBy("createdAt", "desc"), limit(coll === "posts" ? 150 : 100)),
+    snap => { raw.main = toDocs(snap); merge(); }, fail);
+  const u2 = onSnapshot(query(collection(fs, coll), where("pinned", "==", true)),
+    snap => { raw.pin = toDocs(snap); merge(); }, fail);
+  subs[coll] = () => { u1(); u2(); };
 }
 
 // =====================================================================
@@ -429,6 +476,14 @@ function menuHtml(coll, p) {
   const mine = p.uid === me.uid;
   const items = [];
   if (coll === "posts") items.push(`<button data-act="toggleResolved">${p.resolved ? "해결 취소하기" : "해결됨으로 표시"}</button>`);
+  if (coll !== "events" && isAdmin()) {
+    items.push(`<button data-act="pin">${p.pinned ? "📌 고정 해제" : "📌 맨 위에 고정"}</button>`);
+    items.push(`<button data-act="color">🎨 제목 색 바꾸기</button>`);
+    if (menuColor) items.push(`<div class="menucolors">
+      <button data-act="setColor" data-color="">기본</button>
+      ${Object.entries(TITLE_COLORS).map(([k, [n, c]]) => `<button data-act="setColor" data-color="${k}" style="color:${c}">${n}</button>`).join("")}
+    </div>`);
+  }
   if (coll !== "events") items.push(`<button data-act="open">글 열기</button>`);
   items.push(`<button data-act="delete" class="danger">${menuSure ? "정말 삭제할까요? 한 번 더 누르기" : "삭제"}</button>`);
   return `<div class="menu" role="menu">
@@ -440,7 +495,7 @@ document.addEventListener("click", async e => {
   if (moreBtn) {
     e.stopPropagation();
     openMenuKey = openMenuKey === moreBtn.dataset.menu ? null : moreBtn.dataset.menu;
-    menuSure = false; render(); return;
+    menuSure = false; menuColor = false; render(); return;
   }
   if (act) {
     e.stopPropagation();
@@ -449,6 +504,14 @@ document.addEventListener("click", async e => {
     if (!p) { openMenuKey = null; return render(); }
     const a = act.dataset.act;
     if (a === "open") { openMenuKey = null; return openDetail(coll, id); }
+    if (a === "color") { menuColor = !menuColor; return render(); }
+    if (a === "pin" || a === "setColor") {
+      openMenuKey = null; menuColor = false;
+      const change = a === "pin" ? { pinned: !p.pinned } : { titleColor: act.dataset.color };
+      try { await updateDoc(doc(fs, coll, id), change); toast(a === "pin" ? (p.pinned ? "고정을 풀었어요" : "맨 위에 고정했어요") : "제목 색을 바꿨어요"); }
+      catch (err) { fail(err); }
+      return render();
+    }
     if (a === "toggleResolved") {
       openMenuKey = null;
       try { await updateDoc(doc(fs, coll, id), { resolved: !p.resolved }); toast(p.resolved ? "해결 표시를 취소했어요" : "해결됨으로 표시했어요"); }
@@ -461,7 +524,7 @@ document.addEventListener("click", async e => {
       return deleteItem(coll, id);
     }
   }
-  if (openMenuKey && !e.target.closest(".menu")) { openMenuKey = null; menuSure = false; render(); }
+  if (openMenuKey && !e.target.closest(".menu")) { openMenuKey = null; menuSure = false; menuColor = false; render(); }
 });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && openMenuKey) { openMenuKey = null; render(); } });
 
@@ -487,9 +550,9 @@ function renderLostList() {
   ensure("posts");
   const f = lostFilter, q = f.q.trim().toLowerCase();
   const shown = data.posts
-    .filter(p => !f.kind || p.kind === f.kind)
-    .filter(p => !f.category || p.category === f.category)
-    .filter(p => f.showResolved || !p.resolved)
+    .filter(p => p.pinned || !f.kind || p.kind === f.kind)
+    .filter(p => p.pinned || !f.category || p.category === f.category)
+    .filter(p => p.pinned || f.showResolved || !p.resolved)
     .filter(p => !q || [p.title, p.description, p.location, p.storage].join(" ").toLowerCase().includes(q));
   app.innerHTML = `
     <nav class="tabs">
@@ -504,11 +567,11 @@ function renderLostList() {
     <div class="list">
       ${!loaded.posts ? `<div class="empty">불러오는 중…</div>` : shown.length ? shown.map(p => `
         <div class="cardwrap">
-          <button class="card ${p.resolved ? "done" : ""}" data-open="${esc(p.id)}">
+          <button class="card ${p.resolved ? "done" : ""} ${p.pinned ? "pinned" : ""}" data-open="${esc(p.id)}">
             ${safeImg(p.image) ? `<img class="thumb" src="${safeImg(p.image)}" alt="">` : `<div class="thumb">📦</div>`}
             <div>
-              <span class="badge ${p.kind === "lost" ? "lost" : "found"}">${kindLabel(p.kind)}</span>${p.resolved ? `<span class="badge resolved">해결됨</span>` : ""}
-              <h3>${esc(p.title)}</h3>
+              ${pinBadge(p)}<span class="badge ${p.kind === "lost" ? "lost" : "found"}">${kindLabel(p.kind)}</span>${p.resolved ? `<span class="badge resolved">해결됨</span>` : ""}
+              <h3${titleStyle(p)}>${esc(p.title)}</h3>
               <p class="meta">${esc(p.category)} · ${esc(p.location)} · ${esc(p.date)} · 💬 ${Number(p.commentCount) || 0}</p>
             </div>
           </button>
@@ -542,11 +605,13 @@ function renderLostWrite() {
       <label>현재 보관 위치 (주운 경우)<input id="wStore" maxlength="60" placeholder="예: 2층 교무실, 행정실"></label>
       <label>설명<textarea id="wDesc" rows="5" maxlength="1000" placeholder="색깔, 특징 등. 주운 물건이라면 주인만 알 수 있는 특징은 적지 말고 남겨두세요!"></textarea></label>
       ${photoField()}
+      ${adminExtras()}
       <p class="err" id="wErr" hidden></p>
       <button class="btn big" id="wSubmit">올리기</button>
     </form>`;
   $("back").onclick = () => { view = "list"; render(); };
   const photo = bindPhoto();
+  bindAdminExtras();
   $("wForm").onsubmit = async e => {
     e.preventDefault();
     const v = id => $(id).value.trim();
@@ -557,7 +622,7 @@ function renderLostWrite() {
         kind: document.querySelector("input[name=kind]:checked").value,
         title: v("wTitle"), category: v("wCat"), location: v("wLoc"), date: v("wDate"),
         storage: v("wStore"), description: v("wDesc"), image: photo.value(),
-        uid: me.uid, resolved: false, commentCount: 0, createdAt: serverTimestamp(),
+        uid: me.uid, resolved: false, commentCount: 0, createdAt: serverTimestamp(), ...adminValues(),
       });
       openDetail("posts", r.id);
     });
@@ -565,57 +630,84 @@ function renderLostWrite() {
 }
 
 // =====================================================================
-//  자유게시판
+//  일반 게시판 (자유 · 1학년 · 2학년 · 3학년 · 공부) — 같은 코드를 컬렉션만 바꿔서 사용
 // =====================================================================
-function renderFreeList() {
-  ensure("free");
-  const q = freeQ.trim().toLowerCase();
-  const shown = data.free.filter(p => !q || (p.title + " " + p.body).toLowerCase().includes(q));
+function renderBoardList() {
+  const coll = tab;
+  ensure(coll);
+  const qv = boardQ[coll] || "", q = qv.trim().toLowerCase();
+  const shown = data[coll].filter(p => !q || (p.title + " " + p.body).toLowerCase().includes(q));
   app.innerHTML = `
-    <div class="filters"><input id="q" class="grow" placeholder="자유게시판 검색" value="${esc(freeQ)}"></div>
+    <div class="filters"><input id="q" class="grow" placeholder="${esc(BOARD_INFO[coll][0])} 검색" value="${esc(qv)}"></div>
     <div class="list">
-      ${!loaded.free ? `<div class="empty">불러오는 중…</div>` : shown.length ? shown.map(p => `
+      ${!loaded[coll] ? `<div class="empty">불러오는 중…</div>` : shown.length ? shown.map(p => `
         <div class="cardwrap">
-          <button class="card" data-open="${esc(p.id)}">
+          <button class="card ${p.pinned ? "pinned" : ""}" data-open="${esc(p.id)}">
             <div style="flex:1">
-              <h3 style="margin-top:0">${esc(p.title)}</h3>
+              ${p.pinned ? `<div>${pinBadge(p)}</div>` : ""}
+              <h3 style="margin-top:${p.pinned ? "6px" : "0"};${TITLE_COLORS[p.titleColor] ? "color:" + TITLE_COLORS[p.titleColor][1] : ""}">${esc(p.title)}</h3>
               <p class="snippet">${esc(p.body)}</p>
-              <p class="meta">익명 · ${fmt(p.createdAt)} · 💬 ${Number(p.commentCount) || 0}</p>
+              <p class="meta">${p.uid === me.uid ? "내 글" : "익명"} · ${fmt(p.createdAt)} · 💬 ${Number(p.commentCount) || 0}</p>
             </div>
             ${safeImg(p.image) ? `<img class="thumb" src="${safeImg(p.image)}" alt="">` : ""}
           </button>
-          ${moreButton("free", p)}
-        </div>`).join("") : `<div class="empty">${data.free.length ? "검색 결과가 없어요." : "아직 글이 없어요.<br>오른쪽 위 「+ 글쓰기」로 첫 글을 올려보세요!"}</div>`}
+          ${moreButton(coll, p)}
+        </div>`).join("") : `<div class="empty">${data[coll].length ? "검색 결과가 없어요." : "아직 글이 없어요.<br>오른쪽 위 「글쓰기」로 첫 글을 올려보세요!"}</div>`}
     </div>`;
-  $("q").oninput = e => { freeQ = e.target.value; render(); const el = $("q"); el.focus(); el.setSelectionRange(el.value.length, el.value.length); };
-  app.querySelectorAll("[data-open]").forEach(c => c.onclick = () => openDetail("free", c.dataset.open));
+  $("q").oninput = e => { boardQ[coll] = e.target.value; render(); const el = $("q"); el.focus(); el.setSelectionRange(el.value.length, el.value.length); };
+  app.querySelectorAll("[data-open]").forEach(c => c.onclick = () => openDetail(coll, c.dataset.open));
 }
 
-function renderFreeWrite() {
+function renderBoardWrite() {
+  const coll = tab;
   app.innerHTML = `
     <button class="back" id="back">← 목록으로</button>
-    <h2>자유게시판 글쓰기</h2>
+    <h2>${esc(BOARD_INFO[coll][0])} 글쓰기</h2>
     <form class="panel write" id="wForm">
       <label>제목 *<input id="wTitle" maxlength="80"></label>
       <label>내용 *<textarea id="wBody" rows="8" maxlength="3000" placeholder="욕설, 비방, 다른 사람 사진이나 개인정보는 올리지 말아주세요."></textarea></label>
       ${photoField()}
+      ${adminExtras()}
       <p class="err" id="wErr" hidden></p>
       <button class="btn big" id="wSubmit">올리기</button>
     </form>`;
   $("back").onclick = () => { view = "list"; render(); };
   const photo = bindPhoto();
+  bindAdminExtras();
   $("wForm").onsubmit = async e => {
     e.preventDefault();
     const title = $("wTitle").value.trim(), body = $("wBody").value.trim();
     if (!title || !body) return showErr("제목과 내용을 입력해주세요.");
     if (photo.busy()) return showErr("사진을 준비하고 있어요. 잠깐만 기다렸다가 눌러주세요.");
     await submit(async () => {
-      const r = await addDoc(collection(fs, "free"), {
-        title, body, image: photo.value(), uid: me.uid, commentCount: 0, createdAt: serverTimestamp(),
+      const r = await addDoc(collection(fs, coll), {
+        title, body, image: photo.value(), uid: me.uid, commentCount: 0, createdAt: serverTimestamp(), ...adminValues(),
       });
-      openDetail("free", r.id);
+      openDetail(coll, r.id);
     });
   };
+}
+
+// 관리자 전용: 공지 고정 + 제목 색
+function adminExtras() {
+  if (!isAdmin()) return "";
+  return `<fieldset class="adminbox"><legend>관리자 설정</legend>
+    <label class="check"><input type="checkbox" id="wPin"> 공지로 맨 위에 고정</label>
+    <div><div class="meta" style="margin-bottom:6px">제목 색</div>
+      <div class="colors">
+        <label class="chip"><input type="radio" name="wColor" value="" checked><span>기본</span></label>
+        ${Object.entries(TITLE_COLORS).map(([k, [n, c]]) => `<label class="chip" style="color:${c}"><input type="radio" name="wColor" value="${k}"><span>${n}</span></label>`).join("")}
+      </div></div>
+  </fieldset>`;
+}
+function bindAdminExtras() {
+  document.querySelectorAll("input[name=wColor]").forEach(r => r.onchange = () => {
+    $("wTitle").style.color = TITLE_COLORS[r.value]?.[1] || "";
+  });
+}
+function adminValues() {
+  if (!isAdmin() || !$("wPin")) return {};
+  return { pinned: $("wPin").checked, titleColor: document.querySelector("input[name=wColor]:checked")?.value || "" };
 }
 
 // 글쓰기 공통
@@ -701,8 +793,8 @@ function renderDetail() {
   const nameOf = uid => uid === p.uid ? "글쓴이" : "익명" + (nums[uid] ??= ++n);
   const draft = $("cText")?.value || "";
   const body = coll === "posts" ? `
-      <span class="badge ${p.kind === "lost" ? "lost" : "found"}">${kindLabel(p.kind)}</span>${p.resolved ? `<span class="badge resolved">해결됨</span>` : ""}
-      <h2>${esc(p.title)}</h2>
+      ${pinBadge(p)}<span class="badge ${p.kind === "lost" ? "lost" : "found"}">${kindLabel(p.kind)}</span>${p.resolved ? `<span class="badge resolved">해결됨</span>` : ""}
+      <h2${titleStyle(p)}>${esc(p.title)}</h2>
       <p class="meta">${mine ? "내 글" : "익명"} · ${fmt(p.createdAt)}</p>
       ${safeImg(p.image) ? `<img class="photo" src="${safeImg(p.image)}" alt="">` : ""}
       <dl>
@@ -712,7 +804,8 @@ function renderDetail() {
         ${p.storage ? `<dt>보관 위치</dt><dd>${esc(p.storage)}</dd>` : ""}
       </dl>
       ${p.description ? `<p class="desc">${esc(p.description)}</p>` : ""}` : `
-      <h2>${esc(p.title)}</h2>
+      ${pinBadge(p)}
+      <h2${titleStyle(p)}>${esc(p.title)}</h2>
       <p class="meta">${mine ? "내 글" : "익명"} · ${fmt(p.createdAt)}</p>
       <p class="desc">${esc(p.body)}</p>
       ${safeImg(p.image) ? `<img class="photo" src="${safeImg(p.image)}" alt="">` : ""}`;
@@ -724,6 +817,7 @@ function renderDetail() {
       ${mine || isAdmin() ? `
       <div class="owner">
         ${coll === "posts" ? `<button class="btn" id="resolve">${p.resolved ? "해결 취소" : "찾았어요 (해결 처리)"}</button>` : ""}
+        ${isAdmin() ? `<button class="btn gray" id="pinBtn">${p.pinned ? "📌 고정 해제" : "📌 맨 위에 고정"}</button>` : ""}
         <button class="btn ghost" id="del">삭제${!mine ? " (관리자)" : ""}</button>
       </div>` : ""}
     </article>
@@ -745,6 +839,8 @@ function renderDetail() {
   const postRef = doc(fs, coll, p.id);
   $("resolve")?.addEventListener("click", () =>
     updateDoc(postRef, { resolved: !p.resolved }).then(() => toast(p.resolved ? "해결 표시를 취소했어요" : "해결됨으로 표시했어요 🎉")).catch(fail));
+  $("pinBtn")?.addEventListener("click", () =>
+    updateDoc(postRef, { pinned: !p.pinned }).then(() => toast(p.pinned ? "고정을 풀었어요" : "맨 위에 고정했어요")).catch(fail));
   $("del")?.addEventListener("click", e => {
     const btn = e.currentTarget;
     if (btn.dataset.sure !== "1") { btn.dataset.sure = "1"; btn.textContent = "정말 삭제할까요? 한 번 더 누르기"; return; }
