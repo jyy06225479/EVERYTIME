@@ -103,6 +103,11 @@ nav.main .item.on { color: var(--accent); font-weight: 700; border-left-color: v
 .replies .comment { padding: 6px 0; border-bottom: 0; }
 .reply-mark { color: var(--muted); margin-right: 4px; }
 .comment.gone > p { color: var(--muted); font-style: italic; margin: 0; }
+.reportlink { margin-left: auto; background: none; border: 0; color: var(--muted); cursor: pointer; font-size: .85rem; }
+.reportlink:hover { color: var(--accent); text-decoration: underline; }
+.reportbox { display: grid; gap: 10px; border-color: var(--pin-line); }
+.reasons { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.reasons label { display: flex; gap: 6px; align-items: center; }
 .rform { display: flex; gap: 6px; margin: 6px 0 4px 18px; }
 .rform textarea { flex: 1; min-width: 0; }
 .welcome h2 { margin: 0 0 6px; font-size: 1.2rem; }
@@ -291,7 +296,7 @@ table.tt { border-collapse: collapse; width: 100%; min-width: 520px; font-size: 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut }
   from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, getDoc, getDocs, onSnapshot,
+import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, getDoc, getDocs, setDoc, onSnapshot,
          query, orderBy, limit, where, serverTimestamp, writeBatch, increment }
   from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 import { getDatabase, ref as dbRef, set as dbSet, update as dbUpdate, remove as dbRemove, get as dbGet,
@@ -362,8 +367,10 @@ const TABS = [
   ["lost", "분실물"], ["free", "자유게시판"], ["grade1", "1학년 게시판"], ["grade2", "2학년 게시판"],
   ["grade3", "3학년 게시판"], ["studyboard", "공부 게시판"],
   ["meal", "급식"], ["time", "시간표"], ["event", "행사"], ["study", "공부방"],
-  ["me", "내 프로필"],
+  ["me", "내 프로필"], ["reports", "신고 관리"],
 ];
+// 신고 이유 (보안 규칙의 reason 목록과 같게)
+const REPORT_REASONS = ["욕설·비방", "개인정보·사진", "음란·불쾌한 내용", "광고·도배", "거짓 정보", "기타"];
 const MENU_GROUPS = [
   ["환영 및 공지", ["notice", "classnotice"]],
   ["게시판", ["lost", "free", "grade1", "grade2", "grade3"]],
@@ -376,6 +383,7 @@ const TITLE_COLORS = {
   blue: ["파랑", "#1c7ed6"], navy: ["남색", "#364fc7"], purple: ["보라", "#7048e8"], pink: ["분홍", "#d6336c"], gray: ["회색", "#868e96"],
 };
 const BOARD_INFO = {
+  reports: ["신고 관리", "학생들이 신고한 글과 댓글이에요. 확인하고 삭제하거나 신고를 지워주세요."],
   me: ["내 프로필", "내 이름, 내가 쓴 글, 화면 설정을 관리해요."],
   notice: ["환영 및 공지", "가림온의 공지사항이에요. 글은 관리자만 올릴 수 있어요."],
   classnotice: ["학급 공지", "학급 공지를 올리고 확인해요."],
@@ -410,6 +418,8 @@ let replyTo = null;                // 답글 다는 중인 댓글 id
 let viewed = null;                 // 조회수 중복 방지 (이 브라우저 기준, 처음 쓸 때 불러옴)
 let myName = "";
 let menuColor = false;
+let reportTarget = null;           // 신고 중인 대상: "post" 또는 댓글 id
+let reports = [], reportsLoaded = false, unsubReports = null;
 
 const app = document.getElementById("app");
 const $ = id => document.getElementById(id);
@@ -489,9 +499,11 @@ onAuthStateChanged(auth, async user => {
     Object.values(subs).forEach(u => u?.()); for (const k in subs) delete subs[k];
     for (const k in loaded) loaded[k] = false;
     unsubComments?.(); unsubComments = null;
+    unsubReports?.(); unsubReports = null; reports = []; reportsLoaded = false;
     return renderLogin();
   }
   startStudyWatch();
+  if (isAdmin()) watchReports();
   go(HOME_TAB);
 });
 
@@ -517,6 +529,7 @@ function renderLogin() {
 // =====================================================================
 function go(t) {
   tab = TABS.some(x => x[0] === t) ? t : "lost";
+  if (tab === "reports" && !isAdmin()) tab = HOME_TAB;
   store.set("tab", tab);
   view = "list"; openMenuKey = null;
   unsubComments?.(); unsubComments = null;
@@ -533,11 +546,12 @@ function renderNav() {
   const label = Object.fromEntries(TABS);
   const closed = store.get("navClosed", []);
   const chev = `<svg class="chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 6l4.5 4.5L12.5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-  $("nav").innerHTML = MENU_GROUPS.map(([g, keys]) => {
+  const groups = isAdmin() ? [...MENU_GROUPS, ["관리", ["reports"]]] : MENU_GROUPS;   // 관리자에게만 「관리」 카테고리
+  $("nav").innerHTML = groups.map(([g, keys]) => {
     const isClosed = closed.includes(g);
     return `<div class="navgrp ${isClosed ? "closed" : ""}">
       <button class="grp" data-grp="${esc(g)}" aria-expanded="${!isClosed}">${esc(g)} ${chev}</button>
-      ${keys.map(k => `<button class="item ${k === tab ? "on" : ""}" data-tab="${k}">${label[k]}</button>`).join("")}
+      ${keys.map(k => `<button class="item ${k === tab ? "on" : ""}" data-tab="${k}">${label[k]}${k === "reports" && reportsLoaded && reportGroups().length ? ` (${reportGroups().length})` : ""}</button>`).join("")}
     </div>`;
   }).join("");
 }
@@ -566,6 +580,7 @@ function render() {
   if (tab === "event") return view === "write" ? renderEventWrite() : renderEvents();
   if (tab === "study") return renderStudy();
   if (tab === "me") return renderProfile();
+  if (tab === "reports") return renderReports();
 }
 
 // 컬렉션은 그 탭을 처음 열 때 한 번만 구독 (읽기 횟수 아끼기)
@@ -936,7 +951,7 @@ async function shrinkImage(file) {
 //  글 상세 (분실물·자유게시판 공통) + 댓글
 // =====================================================================
 function openDetail(coll, id) {
-  view = "detail"; currentColl = coll; currentId = id; comments = []; openMenuKey = null; replyTo = null;
+  view = "detail"; currentColl = coll; currentId = id; comments = []; openMenuKey = null; replyTo = null; reportTarget = null;
   const key = coll + "/" + id;
   // 조회수: 다른 사람 글을 목록에서 열 때만, 같은 브라우저에서 한 글은 한 번만 (내 글은 세지 않음)
   const known = data[coll].find(x => x.id === id);
@@ -995,6 +1010,7 @@ function renderDetail() {
       <span class="cacts">
         <button data-reply="${esc(isReply ? c.parentId : c.id)}">답글</button>
         ${canDel(c) ? `<button class="cdel" data-cid="${esc(c.id)}">삭제</button>` : ""}
+        ${c.uid !== me.uid ? `<button data-report="${esc(c.id)}">신고</button>` : ""}
       </span>
       <p>${safe(c.text)}</p>
     </div>`;
@@ -1033,6 +1049,7 @@ function renderDetail() {
       <div class="stats">
         <button class="likebtn ${liked ? "on" : ""}" id="likeBtn" aria-pressed="${liked}"><span class="h" aria-hidden="true">${liked ? "♥" : "♡"}</span>좋아요 ${Number(p.likeCount) || 0}</button>
         <span class="meta">조회 ${Number(p.viewCount) || 0}</span>
+        ${!mine ? `<button class="reportlink" data-report="post">신고</button>` : ""}
       </div>
       ${mine || isAdmin() ? `
       <div class="owner">
@@ -1041,6 +1058,7 @@ function renderDetail() {
         <button class="btn ghost" id="del">삭제${!mine ? " (관리자)" : ""}</button>
       </div>` : ""}
     </article>
+    ${reportTarget ? reportForm(p) : ""}
     <section class="panel">
       <h3>댓글 ${comments.length}</h3>
       ${tops.map(c => thread(one(c, false), c.id)).join("")}
@@ -1062,8 +1080,30 @@ function renderDetail() {
     if (btn.dataset.sure !== "1") { btn.dataset.sure = "1"; btn.textContent = "정말 삭제할까요? 한 번 더 누르기"; return; }
     btn.disabled = true; deleteItem(coll, p.id);
   });
+  // 댓글 삭제: 댓글 수도 1 줄이기
   app.querySelectorAll(".cdel").forEach(b => b.onclick = () =>
-    deleteDoc(doc(fs, coll, p.id, "comments", b.dataset.cid)).catch(fail));
+    deleteComment(coll, p.id, b.dataset.cid).then(() => {
+      if (detailCache[key]) detailCache[key] = { ...detailCache[key], commentCount: Math.max(0, (Number(detailCache[key].commentCount) || 0) - 1) };
+    }).catch(fail));
+  // 신고
+  app.querySelectorAll("[data-report]").forEach(b => b.onclick = () => {
+    reportTarget = reportTarget === b.dataset.report ? null : b.dataset.report; renderDetail();
+    $("repForm")?.scrollIntoView({ block: "center", behavior: "smooth" });
+  });
+  $("repCancel")?.addEventListener("click", () => { reportTarget = null; renderDetail(); });
+  $("repForm")?.addEventListener("submit", async e => {
+    e.preventDefault();
+    const reason = document.querySelector("input[name=repReason]:checked")?.value;
+    if (!reason) { $("repErr").textContent = "신고 이유를 골라주세요."; $("repErr").hidden = false; return; }
+    $("repSubmit").disabled = true;
+    try {
+      await sendReport(coll, p, reportTarget === "post" ? null : comments.find(c => c.id === reportTarget), reason, $("repDetail").value.trim());
+      reportTarget = null; toast("신고했어요. 관리자가 확인할게요."); renderDetail();
+    } catch (err) {
+      if ($("repErr")) { $("repErr").textContent = err.message; $("repErr").hidden = false; }
+      if ($("repSubmit")) $("repSubmit").disabled = false;
+    }
+  });
   // 좋아요: likes/{내 uid} 문서 + 글의 likeCount 를 함께 바꿈 (한 사람 한 번)
   $("likeBtn").onclick = async () => {
     const btn = $("likeBtn"); btn.disabled = true;
@@ -1099,7 +1139,7 @@ function renderDetail() {
     } catch (err) { fail(err); if ($("rSubmit")) $("rSubmit").disabled = false; }
   });
   // 다시 그려도 쓰던 칸에 커서 유지
-  if (focusId && $(focusId) && /^(cText|rText)$/.test(focusId)) { const el = $(focusId); el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  if (focusId && $(focusId) && /^(cText|rText|repDetail)$/.test(focusId)) { const el = $(focusId); el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
   $("cForm").onsubmit = async e => {
     e.preventDefault();
     const text = $("cText").value.trim();
@@ -1114,6 +1154,116 @@ function renderDetail() {
     } catch (err) { fail(err); }
     if ($("cSubmit")) $("cSubmit").disabled = false;
   };
+}
+
+// =====================================================================
+//  댓글 삭제 (댓글 수 함께 줄이기) · 신고
+// =====================================================================
+async function deleteComment(coll, postId, cid) {
+  const batch = writeBatch(fs);
+  batch.delete(doc(fs, coll, postId, "comments", cid));
+  const postRef = doc(fs, coll, postId);
+  const post = await getDoc(postRef);
+  if (post.exists() && (Number(post.data().commentCount) || 0) > 0) batch.update(postRef, { commentCount: increment(-1) });
+  await batch.commit();
+}
+function reportForm(p) {
+  const c = reportTarget === "post" ? null : comments.find(x => x.id === reportTarget);
+  if (reportTarget !== "post" && !c) return "";
+  return `<form class="panel reportbox" id="repForm">
+    <h3 style="margin-top:0">신고하기</h3>
+    <p class="meta" style="margin-bottom:10px">${c ? `댓글: "${safe(String(c.text).slice(0, 60))}"` : `글: "${safe(p.title)}"`}</p>
+    <div class="reasons">${REPORT_REASONS.map(r => `<label><input type="radio" name="repReason" value="${r}"> ${r}</label>`).join("")}</div>
+    <textarea id="repDetail" rows="2" maxlength="200" placeholder="자세한 내용 (선택)"></textarea>
+    <p class="meta">신고한 사람은 관리자만 알 수 있어요. 같은 글이나 댓글은 한 번만 신고할 수 있어요.</p>
+    <p class="err" id="repErr" hidden></p>
+    <div class="row" style="grid-template-columns:auto auto;justify-content:start">
+      <button class="btn" id="repSubmit">신고하기</button>
+      <button type="button" class="btn gray" id="repCancel">취소</button>
+    </div>
+  </form>`;
+}
+async function sendReport(coll, p, c, reason, detail) {
+  const commentId = c ? c.id : "";
+  const id = [coll, p.id, commentId, me.uid].join("_");
+  try {
+    await setDoc(doc(fs, "reports", id), {
+      coll, postId: p.id, commentId, reason, detail,
+      preview: String(c ? c.text : p.title).slice(0, 120),
+      uid: me.uid, createdAt: serverTimestamp(),
+    });
+  } catch (e) {
+    if ((e?.code || "").includes("permission")) throw new Error("이미 신고했거나 신고할 수 없는 글이에요.");
+    throw e;
+  }
+}
+
+// =====================================================================
+//  신고 관리 (관리자 전용)
+// =====================================================================
+function watchReports() {
+  if (unsubReports) return;
+  unsubReports = onSnapshot(query(collection(fs, "reports"), orderBy("createdAt", "desc"), limit(300)), snap => {
+    reports = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    reportsLoaded = true;
+    renderNav();
+    if (tab === "reports") renderReports();
+  }, e => console.warn("신고 목록", e));
+}
+// 같은 글·댓글에 대한 신고끼리 묶기
+function reportGroups() {
+  const g = {};
+  reports.forEach(r => {
+    const k = r.coll + "/" + r.postId + "/" + (r.commentId || "");
+    (g[k] ??= { key: k, coll: r.coll, postId: r.postId, commentId: r.commentId || "", preview: r.preview, items: [] }).items.push(r);
+  });
+  return Object.values(g);
+}
+function renderReports() {
+  if (!isAdmin()) return go(HOME_TAB);
+  const groups = reportGroups();
+  const boardName = c => c === "posts" ? "분실물" : (TABS.find(t => t[0] === c)?.[1] || c);
+  app.innerHTML = !reportsLoaded ? `<div class="empty">불러오는 중…</div>` : groups.length ? `<div class="list">${groups.map((g, i) => {
+    const reasons = {};
+    g.items.forEach(r => reasons[r.reason] = (reasons[r.reason] || 0) + 1);
+    const details = g.items.filter(r => r.detail).map(r => `<li>${safe(r.detail)}</li>`).join("");
+    return `<div class="panel" style="margin:0">
+      <div><span class="badge club">신고 ${g.items.length}건</span><span class="badge school">${esc(boardName(g.coll))} ${g.commentId ? "댓글" : "글"}</span></div>
+      <h3 style="margin:8px 0 4px;overflow-wrap:anywhere">${safe(g.preview)}</h3>
+      <p class="meta">${Object.entries(reasons).map(([r, n]) => `${esc(r)} ${n}`).join(" · ")} · 최근 ${fmt(g.items[0].createdAt)}</p>
+      ${details ? `<ul class="meta" style="margin:6px 0 0;padding-left:18px">${details}</ul>` : ""}
+      <div class="owner">
+        <button class="btn gray" data-rgo="${i}">글 보기</button>
+        <button class="btn" data-rdel="${i}">${g.commentId ? "댓글" : "글"} 삭제</button>
+        <button class="btn ghost" data-rclear="${i}">신고 지우기 (문제 없음)</button>
+      </div></div>`;
+  }).join("")}</div>` : `<div class="empty">들어온 신고가 없어요.</div>`;
+  const clearGroup = async g => { const b = writeBatch(fs); g.items.forEach(r => b.delete(doc(fs, "reports", r.id))); await b.commit(); };
+  app.querySelectorAll("[data-rgo]").forEach(b => b.onclick = () => {
+    const g = groups[+b.dataset.rgo];
+    go(g.coll === "posts" ? "lost" : g.coll); openDetail(g.coll, g.postId);
+  });
+  app.querySelectorAll("[data-rdel]").forEach(b => b.onclick = async () => {
+    const g = groups[+b.dataset.rdel];
+    if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "정말 삭제할까요? 한 번 더 누르기"; return; }
+    b.disabled = true;
+    try {
+      if (g.commentId) await deleteComment(g.coll, g.postId, g.commentId);
+      else {
+        const batch = writeBatch(fs);
+        const cs = await getDocs(collection(fs, g.coll, g.postId, "comments"));
+        cs.forEach(c => batch.delete(c.ref));
+        batch.delete(doc(fs, g.coll, g.postId));
+        await batch.commit();
+      }
+      await clearGroup(g);
+      toast("삭제하고 신고를 정리했어요");
+    } catch (err) { fail(err); b.disabled = false; }
+  });
+  app.querySelectorAll("[data-rclear]").forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { await clearGroup(groups[+b.dataset.rclear]); toast("신고를 지웠어요"); } catch (err) { fail(err); b.disabled = false; }
+  });
 }
 
 // =====================================================================
@@ -1625,4 +1775,3 @@ setInterval(() => {
 </script>
 </body>
 </html>
-
