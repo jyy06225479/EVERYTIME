@@ -111,6 +111,7 @@ const ALLOWED_PREFIX = "kko58-";
 // 관리자(선생님, 학생회 등) 이메일 → 남의 글도 삭제 가능. 보안 규칙에도 같은 이메일을 적으세요.
 const ADMIN_EMAILS = ["jaung0622@gmail.com"];
 const CATEGORIES = ["전자기기", "필기구", "의류", "지갑/카드", "책/노트", "물병/텀블러", "기타"];
+// 장소 입력칸에 뜨는 추천 목록 (직접 입력도 가능)
 const LOCATIONS  = ["교실", "복도", "체육관", "운동장", "급식실", "도서관", "화장실", "기타"];
 
 const fb = initializeApp(firebaseConfig);
@@ -204,9 +205,8 @@ function renderList() {
   const shown = posts
     .filter(p => !filter.kind || p.kind === filter.kind)
     .filter(p => !filter.category || p.category === filter.category)
-    .filter(p => !filter.location || p.location === filter.location)
     .filter(p => filter.showResolved || !p.resolved)
-    .filter(p => !q || (p.title + " " + p.description).toLowerCase().includes(q));
+    .filter(p => !q || [p.title, p.description, p.location, p.storage].join(" ").toLowerCase().includes(q));
 
   app.innerHTML = `
     <nav class="tabs">
@@ -214,9 +214,8 @@ function renderList() {
         `<button data-kind="${k}" class="${filter.kind === k ? "on" : ""}">${l}</button>`).join("")}
     </nav>
     <div class="filters">
-      <input id="q" placeholder="검색 (예: 이어폰, 검정 필통)" value="${esc(filter.q)}">
+      <input id="q" placeholder="물건이나 장소로 검색 (예: 이어폰, 체육관)" value="${esc(filter.q)}">
       <select id="fCat">${options(CATEGORIES, filter.category, "종류 전체")}</select>
-      <select id="fLoc">${options(LOCATIONS, filter.location, "장소 전체")}</select>
       <label class="check"><input type="checkbox" id="fRes" ${filter.showResolved ? "checked" : ""}> 해결된 글 포함</label>
     </div>
     <div class="list">
@@ -234,7 +233,6 @@ function renderList() {
   app.querySelectorAll(".tabs button").forEach(b => b.onclick = () => { filter.kind = b.dataset.kind; renderList(); });
   $("q").oninput = e => { filter.q = e.target.value; renderList(); const el = $("q"); el.focus(); el.setSelectionRange(el.value.length, el.value.length); };
   $("fCat").onchange = e => { filter.category = e.target.value; renderList(); };
-  $("fLoc").onchange = e => { filter.location = e.target.value; renderList(); };
   $("fRes").onchange = e => { filter.showResolved = e.target.checked; renderList(); };
   app.querySelectorAll(".card").forEach(c => c.onclick = () => openDetail(c.dataset.id));
 }
@@ -254,24 +252,45 @@ function renderWrite() {
       <label>제목 *<input id="wTitle" maxlength="60" placeholder="예: 검은색 무선이어폰 케이스"></label>
       <div class="row">
         <label>물건 종류 *<select id="wCat">${options(CATEGORIES)}</select></label>
-        <label>장소 *<select id="wLoc">${options(LOCATIONS)}</select></label>
+        <label>장소 *<input id="wLoc" list="locList" maxlength="40" placeholder="예: 3층 2반 앞 복도"></label>
+        <datalist id="locList">${LOCATIONS.map(l => `<option value="${esc(l)}">`).join("")}</datalist>
         <label>날짜 *<input type="date" id="wDate" value="${today}"></label>
       </div>
       <label>현재 보관 위치 (주운 경우)<input id="wStore" maxlength="60" placeholder="예: 2층 교무실, 행정실"></label>
       <label>설명<textarea id="wDesc" rows="5" maxlength="1000" placeholder="색깔, 특징 등. 주운 물건이라면 주인만 알 수 있는 특징은 적지 말고 남겨두세요!"></textarea></label>
       <label>사진 <small>(학생증·이름표 등은 이름과 번호를 가리고 올려주세요)</small><input type="file" id="wImg" accept="image/*"></label>
+      <p class="meta" id="wImgMsg" hidden></p>
+      <img class="photo" id="wPreview" alt="첨부한 사진 미리보기" hidden>
       <p class="err" id="wErr" hidden></p>
       <button class="btn big" id="wSubmit">올리기</button>
     </form>`;
   $("back").onclick = renderList;
+
+  // 사진을 고르면 바로 줄여서 미리보기
+  let image = null, imageBusy = false;
+  $("wImg").onchange = async e => {
+    const file = e.target.files[0];
+    image = null; $("wPreview").hidden = true; $("wImgMsg").hidden = true;
+    if (!file) return;
+    imageBusy = true; $("wImgMsg").textContent = "사진 준비 중…"; $("wImgMsg").hidden = false;
+    image = await shrinkImage(file);
+    imageBusy = false;
+    if (image) {
+      $("wPreview").src = image; $("wPreview").hidden = false;
+      $("wImgMsg").textContent = "이 사진이 함께 올라가요.";
+    } else {
+      e.target.value = "";
+      $("wImgMsg").textContent = "이 사진은 읽을 수 없는 형식이에요. 화면 캡처하거나 JPG/PNG 사진으로 다시 골라주세요.";
+    }
+  };
+
   $("wForm").onsubmit = async e => {
     e.preventDefault();
     const v = id => $(id).value.trim();
-    if (!v("wTitle") || !v("wDate")) { $("wErr").textContent = "제목과 날짜는 꼭 입력해주세요."; $("wErr").hidden = false; return; }
+    if (!v("wTitle") || !v("wLoc") || !v("wDate")) { $("wErr").textContent = "제목, 장소, 날짜는 꼭 입력해주세요."; $("wErr").hidden = false; return; }
+    if (imageBusy) { $("wErr").textContent = "사진을 준비하고 있어요. 잠깐만 기다렸다가 눌러주세요."; $("wErr").hidden = false; return; }
     $("wSubmit").disabled = true; $("wSubmit").textContent = "올리는 중…";
     try {
-      const file = $("wImg").files[0];
-      const image = file ? await shrinkImage(file) : null;
       const ref = await addDoc(postsCol, {
         kind: document.querySelector("input[name=kind]:checked").value,
         title: v("wTitle"), category: v("wCat"), location: v("wLoc"), date: v("wDate"),
@@ -287,24 +306,39 @@ function renderWrite() {
 }
 
 // 사진을 작게 줄여서 저장 (Firestore 글 하나는 1MB까지라서)
-function shrinkImage(file) {
-  return new Promise(resolve => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const max = 600, scale = Math.min(1, max / Math.max(img.width, img.height));
-        const c = document.createElement("canvas");
-        c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
-        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-        resolve(c.toDataURL("image/jpeg", 0.7));
-      };
-      img.onerror = () => resolve(null);
-      img.src = reader.result;
-    };
-    reader.onerror = () => resolve(null);
-    reader.readAsDataURL(file);
+// 읽을 수 없는 사진이면 null → 글쓰기 화면에서 안내
+async function shrinkImage(file) {
+  let source = null;
+  // 1차: 일반 이미지로 읽기
+  source = await new Promise(resolve => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
   });
+  // 2차: 다른 방식으로 한 번 더 시도 (일부 폰 사진 형식)
+  if (!source && window.createImageBitmap) {
+    try { source = await createImageBitmap(file); } catch (e) { source = null; }
+  }
+  if (!source) return null;
+
+  const w = source.naturalWidth || source.width, h = source.naturalHeight || source.height;
+  if (!w || !h) return null;
+  let max = 800, quality = 0.75, data = "";
+  // 너무 크면 크기와 화질을 줄여가며 400KB 이하로 맞추기
+  for (let i = 0; i < 5; i++) {
+    const scale = Math.min(1, max / Math.max(w, h));
+    const c = document.createElement("canvas");
+    c.width = Math.round(w * scale); c.height = Math.round(h * scale);
+    const g = c.getContext("2d");
+    g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); // 투명 PNG가 검게 나오지 않게
+    g.drawImage(source, 0, 0, c.width, c.height);
+    data = c.toDataURL("image/jpeg", quality);
+    if (data.length <= 400000) break;
+    max = Math.round(max * 0.8); quality = Math.max(0.5, quality - 0.1);
+  }
+  return data.startsWith("data:image/jpeg") && data.length <= 450000 ? data : null;
 }
 
 // ===== 화면 3: 상세 =====
