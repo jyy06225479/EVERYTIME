@@ -324,6 +324,18 @@ const OFFICE_CODE = "E10";          // 인천광역시교육청
 const SCHOOL_CODE = "";             // 비워두면 학교 이름으로 자동 검색. 알면 7자리 학교코드를 넣어도 돼요.
 const NEIS_KEY = "7d85f352bc9c4b09abcb684b75fd5c16";                // open.neis.go.kr 에서 무료로 받는 인증키. 없으면 급식만 되고 시간표는 안 나와요.
 
+// 욕설 필터: 화면에 보일 때 * 로 가려요. 단어를 더 넣고 싶으면 여기에 추가하세요.
+// 글자 사이에 띄어쓰기·숫자·기호를 넣어 피해 가는 것도 잡아요. (예: "씨 발", "씨1발")
+const BAD_WORDS = [
+  "씨발", "시발", "씨빨", "시빨", "씨팔", "시팔", "씨바", "쓰벌", "ㅆㅂ", "ㅅㅂ", "ㅆㅃ",
+  "병신", "븅신", "빙신", "ㅂㅅ", "좆", "존나", "졸라", "ㅈㄴ", "지랄", "ㅈㄹ",
+  "개새끼", "개새기", "개색기", "개색끼", "새끼", "새기", "미친놈", "미친년", "미친새끼", "ㅁㅊ",
+  "닥쳐", "엿먹어", "엠창", "느금마", "니애미", "니미", "애미", "애비", "꺼져",
+  "fuck", "shit", "bitch",
+];
+// 욕이 아닌데 겹치는 말 (가리지 않음)
+const NOT_BAD = ["시발점", "시발역", "새끼손가락", "새끼발가락", "애비뉴", "졸라맨"];
+
 const CATEGORIES = ["전자기기", "필기구", "의류", "지갑/카드", "책/노트", "물병/텀블러", "기타"];
 const LOCATIONS  = ["교실", "복도", "체육관", "운동장", "급식실", "도서관", "화장실", "매점", "음악실", "과학실"]; // 장소 추천 목록
 const STUDY_ROOMS = [
@@ -341,19 +353,19 @@ let rtdb = null;
 try { rtdb = getDatabase(fb); } catch (e) { console.warn("Realtime Database 연결 실패", e); }
 
 // 일반 게시판 = Firestore 컬렉션 이름. 게시판을 더 만들려면 여기, TABS, MENU_GROUPS, BOARD_INFO, 보안 규칙의 isBoard 에 추가하세요.
-const BOARDS = ["notice", "free", "grade1", "grade2", "grade3", "studyboard"];
+const BOARDS = ["notice", "classnotice", "free", "grade1", "grade2", "grade3", "studyboard"];
 const ADMIN_ONLY_BOARDS = ["notice"];          // 관리자만 글을 올릴 수 있는 게시판 (댓글은 모두 가능)
 const HOME_TAB = "notice";                      // 사이트에 들어오면 처음 보이는 게시판
 const isBoard = t => BOARDS.includes(t);
 const TABS = [
-  ["notice", "공지사항"],
+  ["notice", "공지사항"], ["classnotice", "학급 공지"],
   ["lost", "분실물"], ["free", "자유게시판"], ["grade1", "1학년 게시판"], ["grade2", "2학년 게시판"],
   ["grade3", "3학년 게시판"], ["studyboard", "공부 게시판"],
   ["meal", "급식"], ["time", "시간표"], ["event", "행사"], ["study", "공부방"],
   ["me", "내 프로필"],
 ];
 const MENU_GROUPS = [
-  ["환영 및 공지", ["notice"]],
+  ["환영 및 공지", ["notice", "classnotice"]],
   ["게시판", ["lost", "free", "grade1", "grade2", "grade3", "studyboard"]],
   ["학교생활", ["meal", "time", "event"]],
   ["공부", ["study"]],
@@ -366,6 +378,7 @@ const TITLE_COLORS = {
 const BOARD_INFO = {
   me: ["내 프로필", "내 이름, 내가 쓴 글, 화면 설정을 관리해요."],
   notice: ["환영 및 공지", "가림고 EVERYTIME의 공지사항이에요. 글은 관리자만 올릴 수 있어요."],
+  classnotice: ["학급 공지", "학급 공지를 올리고 확인해요."],
   lost: ["분실물 게시판", "잃어버린 물건, 주운 물건을 올리고 주인을 찾아요."],
   free: ["자유게시판", "익명으로 자유롭게 이야기해요. 서로 존중해 주세요."],
   grade1: ["1학년 게시판", "1학년끼리 나누는 이야기예요."],
@@ -402,6 +415,15 @@ const app = document.getElementById("app");
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const safeImg = s => typeof s === "string" && s.startsWith("data:image/") ? esc(s) : "";
+const BAD_RE = new RegExp(BAD_WORDS.map(w => [...w].map(ch => ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[\\s\\d_.~!@#$%^&*\\-]*")).join("|"), "gi");
+const clean = text => {
+  let t = String(text ?? "");
+  const keep = [];
+  NOT_BAD.forEach((w, i) => { t = t.split(w).join(`\u0000${i}\u0000`); keep[i] = w; });
+  t = t.replace(BAD_RE, m => "*".repeat(m.length));
+  return t.replace(/\u0000(\d+)\u0000/g, (_, i) => keep[i]);
+};
+const safe = s => esc(clean(s));   // 사람들이 쓴 글은 이걸로 보여주기 (욕 가리기 + 안전하게)
 const kindLabel = k => k === "lost" ? "잃어버렸어요" : "주웠어요";
 const titleStyle = p => TITLE_COLORS[p.titleColor] ? ` style="color:${TITLE_COLORS[p.titleColor][1]}"` : "";
 const pinBadge = p => p.pinned ? `<span class="badge pin">공지</span>` : "";
@@ -683,8 +705,8 @@ function renderLostList() {
             ${safeImg(p.image) ? `<img class="thumb" src="${safeImg(p.image)}" alt="">` : `<div class="thumb">📦</div>`}
             <div>
               ${pinBadge(p)}<span class="badge ${p.kind === "lost" ? "lost" : "found"}">${kindLabel(p.kind)}</span>${p.resolved ? `<span class="badge resolved">해결됨</span>` : ""}
-              <h3${titleStyle(p)}>${esc(p.title)}</h3>
-              <p class="meta">${p.authorName ? writer(p) + " · " : ""}${esc(p.category)} · ${esc(p.location)} · ${esc(p.date)}</p>
+              <h3${titleStyle(p)}>${safe(p.title)}</h3>
+              <p class="meta">${p.authorName ? writer(p) + " · " : ""}${esc(p.category)} · ${safe(p.location)} · ${esc(p.date)}</p>
               <p class="meta">${statLine(p)}</p>
             </div>
           </button>
@@ -771,8 +793,8 @@ function renderBoardList() {
           <button class="card ${p.pinned ? "pinned" : ""}" data-open="${esc(p.id)}">
             <div style="flex:1">
               ${p.pinned ? `<div>${pinBadge(p)}</div>` : ""}
-              <h3 style="margin-top:${p.pinned ? "6px" : "0"};${TITLE_COLORS[p.titleColor] ? "color:" + TITLE_COLORS[p.titleColor][1] : ""}">${esc(p.title)}</h3>
-              <p class="snippet">${esc(p.body)}</p>
+              <h3 style="margin-top:${p.pinned ? "6px" : "0"};${TITLE_COLORS[p.titleColor] ? "color:" + TITLE_COLORS[p.titleColor][1] : ""}">${safe(p.title)}</h3>
+              <p class="snippet">${safe(p.body)}</p>
               <p class="meta">${writer(p)}${p.uid === me.uid ? " (내 글)" : ""} · ${fmt(p.createdAt)} · ${statLine(p)}</p>
             </div>
             ${safeImg(p.image) ? `<img class="thumb" src="${safeImg(p.image)}" alt="">` : ""}
@@ -973,7 +995,7 @@ function renderDetail() {
         <button data-reply="${esc(isReply ? c.parentId : c.id)}">답글</button>
         ${canDel(c) ? `<button class="cdel" data-cid="${esc(c.id)}">삭제</button>` : ""}
       </span>
-      <p>${esc(c.text)}</p>
+      <p>${safe(c.text)}</p>
     </div>`;
   const replyForm = pid => replyTo === pid ? `
     <form class="rform" id="rForm">
@@ -987,20 +1009,20 @@ function renderDetail() {
     ${replyForm(pid)}`;
   const body = coll === "posts" ? `
       ${pinBadge(p)}<span class="badge ${p.kind === "lost" ? "lost" : "found"}">${kindLabel(p.kind)}</span>${p.resolved ? `<span class="badge resolved">해결됨</span>` : ""}
-      <h2${titleStyle(p)}>${esc(p.title)}</h2>
+      <h2${titleStyle(p)}>${safe(p.title)}</h2>
       <p class="meta">${writer(p)}${mine ? " (내 글)" : ""} · ${fmt(p.createdAt)}</p>
       ${safeImg(p.image) ? `<img class="photo" src="${safeImg(p.image)}" alt="">` : ""}
       <dl>
         <dt>종류</dt><dd>${esc(p.category)}</dd>
-        <dt>장소</dt><dd>${esc(p.location)}</dd>
+        <dt>장소</dt><dd>${safe(p.location)}</dd>
         <dt>날짜</dt><dd>${esc(p.date)}</dd>
-        ${p.storage ? `<dt>보관 위치</dt><dd>${esc(p.storage)}</dd>` : ""}
+        ${p.storage ? `<dt>보관 위치</dt><dd>${safe(p.storage)}</dd>` : ""}
       </dl>
-      ${p.description ? `<p class="desc">${esc(p.description)}</p>` : ""}` : `
+      ${p.description ? `<p class="desc">${safe(p.description)}</p>` : ""}` : `
       ${pinBadge(p)}
-      <h2${titleStyle(p)}>${esc(p.title)}</h2>
+      <h2${titleStyle(p)}>${safe(p.title)}</h2>
       <p class="meta">${writer(p)}${mine ? " (내 글)" : ""} · ${fmt(p.createdAt)}</p>
-      <p class="desc">${esc(p.body)}</p>
+      <p class="desc">${safe(p.body)}</p>
       ${safeImg(p.image) ? `<img class="photo" src="${safeImg(p.image)}" alt="">` : ""}`;
 
   app.innerHTML = `
@@ -1191,7 +1213,7 @@ async function loadMyPosts() {
     $("myPosts").innerHTML = all.length ? all.map(p => `
       <button class="myrow" data-coll="${esc(p.coll)}" data-id="${esc(p.id)}">
         <span class="b">${esc(nameOfColl(p.coll))}</span>
-        <span class="t"${titleStyle(p)}>${esc(p.title)}</span>
+        <span class="t"${titleStyle(p)}>${safe(p.title)}</span>
         <span class="meta">${p.authorName ? "이름 공개" : "익명"} · ${fmt(p.createdAt).slice(0, 10)} · ${statLine(p)}</span>
       </button>`).join("") : `<p class="meta">아직 쓴 글이 없어요.</p>`;
     $("myPosts").querySelectorAll(".myrow").forEach(b => b.onclick = () => {
@@ -1537,7 +1559,7 @@ function renderStudy() {
       <h3 style="margin-top:0">지금 이 방에 있는 사람 ${ms.length}명</h3>
       ${ms.length ? ms.map(m => `
         <div class="member">
-          <span class="name"><span class="dot ${m.status === "studying" ? "" : "pause"}"></span>${esc(m.nickname)}${m.uid === me.uid ? " (나)" : ""}
+          <span class="name"><span class="dot ${m.status === "studying" ? "" : "pause"}"></span>${safe(m.nickname)}${m.uid === me.uid ? " (나)" : ""}
             <span class="meta">${m.status === "studying" ? "공부 중" : "쉬는 중"}</span></span>
           <span class="tmr" data-uid="${esc(m.uid)}">${hms(memberElapsed(m))}</span>
         </div>`).join("") : `<p class="meta">아직 아무도 없어요.</p>`}
@@ -1559,7 +1581,7 @@ function rankingHtml() {
   const list = Object.entries(best).sort((a, b) => b[1].sec - a[1].sec).slice(0, 10);
   return `<section class="panel"><h3 style="margin-top:0">오늘의 공부 랭킹</h3>
     ${list.length ? list.map(([uid, b], i) => `<div class="rank"><span class="n">${i + 1}</span>
-      <span>${esc(b.nickname)}${uid === me.uid ? " (나)" : ""}</span><span class="tmr" data-rank="${esc(uid)}">${hms(b.sec)}</span></div>`).join("")
+      <span>${safe(b.nickname)}${uid === me.uid ? " (나)" : ""}</span><span class="tmr" data-rank="${esc(uid)}">${hms(b.sec)}</span></div>`).join("")
       : `<p class="meta">오늘 아직 기록이 없어요. 첫 번째로 공부를 시작해보세요!</p>`}</section>`;
 }
 
