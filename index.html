@@ -12,29 +12,61 @@
   주의: 파일을 더블클릭해서 열면 로그인이 안 돼요. 웹에 올린 주소로 접속하세요.
 -->
 <style>
+/* 네이버 카페 느낌: 흰 배경 + 왼쪽 메뉴 (폰에서는 메뉴가 위쪽 가로줄로) */
 :root {
-  --bg: #f5f6f8; --card: #ffffff; --fg: #222; --muted: #808389; --line: #e6e6e6; --soft: #f0f1f4;
-  --accent: #c62917; --lost-bg: #ffe3e0; --found-bg: #dff3e4; --found-fg: #1d7a3a;
-  --study: #2f6fde; --study-bg: #e4edfc;
-}
-@media (prefers-color-scheme: dark) {
-  :root { --bg: #16171a; --card: #22242a; --fg: #eee; --muted: #9a9ca2; --line: #33363d; --soft: #2a2c33;
-          --accent: #ff6b57; --lost-bg: #4a2420; --found-bg: #1f3d29; --found-fg: #7fd69a;
-          --study: #7aa7ff; --study-bg: #1e2b45; color-scheme: dark; }
+  --bg: #ffffff; --card: #ffffff; --fg: #222; --muted: #7d7f85; --line: #e4e5e8; --soft: #f5f6f7; --side: #fafafb;
+  --accent: #c62917; --accent-soft: #fdf1ef; --lost-bg: #ffe3e0; --found-bg: #dff3e4; --found-fg: #1d7a3a;
+  --study: #2f6fde; --study-bg: #e9f0fd;
+  color-scheme: light;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 body { margin: 0; font-family: -apple-system, "Pretendard", "Malgun Gothic", sans-serif; background: var(--bg); color: var(--fg); }
 button, input, select, textarea { font: inherit; color: inherit; }
-input, select, textarea { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
-.top { position: sticky; top: 0; z-index: 20; background: var(--card); border-bottom: 1px solid var(--line); }
-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px 16px 6px; max-width: 900px; margin: 0 auto; }
-.logo { font-weight: 800; font-size: 1.2rem; color: var(--accent); cursor: pointer; }
-.hbtns { display: flex; gap: 6px; align-items: center; }
-nav.main { display: flex; gap: 4px; overflow-x: auto; padding: 0 12px; max-width: 900px; margin: 0 auto; scrollbar-width: none; }
-nav.main button { flex-shrink: 0; background: none; border: 0; border-bottom: 3px solid transparent; padding: 10px 10px 8px; cursor: pointer; color: var(--muted); font-weight: 600; }
-nav.main button.on { color: var(--fg); border-bottom-color: var(--accent); }
-main { max-width: 760px; margin: 0 auto; padding: 16px; }
+input, select, textarea { padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+
+.layout { display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 28px; max-width: 1100px; margin: 0 auto; padding: 24px 20px 40px; }
+.side { display: grid; gap: 12px; align-content: start; position: sticky; top: 24px; }
+.box { background: var(--side); border: 1px solid var(--line); border-radius: 6px; }
+.cafe { padding: 20px 16px 16px; text-align: center; background: #fff; }
+.emblem { width: 68px; height: 68px; border-radius: 50%; margin: 0 auto 10px; display: grid; place-items: center;
+  background: var(--accent); color: #fff; font-weight: 800; font-size: 1.15rem; letter-spacing: -.02em; }
+.cafe .name { font-weight: 800; font-size: 1.12rem; cursor: pointer; }
+.cafe .sub { color: var(--muted); font-size: .82rem; margin-top: 4px; }
+.me { padding: 14px; display: grid; gap: 10px; }
+.me .who { font-size: .88rem; line-height: 1.5; overflow-wrap: anywhere; }
+.me .who b { font-size: .95rem; }
+.mebtns { display: grid; gap: 6px; }
+.mebtns .btn { width: 100%; padding: 10px; }
+nav.main { display: grid; padding: 6px 0 10px; }
+nav.main .grp { font-size: .76rem; color: var(--muted); font-weight: 700; padding: 12px 16px 4px; letter-spacing: .04em; }
+nav.main button { text-align: left; background: none; border: 0; border-left: 3px solid transparent; padding: 9px 16px 9px 13px; cursor: pointer; font-size: .95rem; }
+nav.main button:hover { background: var(--soft); }
+nav.main button.on { color: var(--accent); font-weight: 700; border-left-color: var(--accent); background: var(--accent-soft); }
+.content { min-width: 0; }
+.boardhead { border-bottom: 2px solid var(--fg); padding-bottom: 12px; margin-bottom: 16px; }
+.boardhead h1 { margin: 0; font-size: 1.4rem; }
+.boardhead p { margin: 4px 0 0; color: var(--muted); font-size: .9rem; }
+main { padding: 0; }
+
+@media (max-width: 780px) {
+  .layout { grid-template-columns: 1fr; gap: 0; padding: 0 0 32px; }
+  .side { position: sticky; top: 0; z-index: 20; background: #fff; border-bottom: 1px solid var(--line);
+    grid-template-columns: minmax(0, 1fr) auto; gap: 0; align-items: center; padding: 10px 16px 0; }
+  .box { border: 0; background: none; border-radius: 0; }
+  .cafe { padding: 0; text-align: left; display: flex; align-items: center; gap: 8px; }
+  .emblem { width: 32px; height: 32px; margin: 0; font-size: .7rem; }
+  .cafe .sub, .me .who { display: none; }
+  .me { padding: 0; }
+  .mebtns { display: flex; }
+  .mebtns .btn { width: auto; padding: 7px 12px; font-size: .88rem; }
+  nav.main { grid-column: 1 / -1; display: flex; overflow-x: auto; padding: 4px 0 0; scrollbar-width: none; }
+  nav.main .grp { display: none; }
+  nav.main button { flex-shrink: 0; border-left: 0; border-bottom: 3px solid transparent; padding: 10px 10px 8px; font-weight: 600; color: var(--muted); }
+  nav.main button.on { background: none; border-bottom-color: var(--accent); color: var(--fg); }
+  .studybar { grid-column: 1 / -1; margin: 0 -16px; border-radius: 0 !important; }
+  .content { padding: 16px 16px 0; }
+}
 h2 { margin: 4px 0 12px; }
 .btn { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 8px 14px; cursor: pointer; }
 .btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
@@ -57,7 +89,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .card { display: flex; gap: 12px; background: var(--card); padding: 12px 44px 12px 12px; border-radius: 12px; border: 1px solid var(--line); cursor: pointer; text-align: left; width: 100%; }
 .card.done { opacity: .55; }
 .card > div { min-width: 0; }
-.thumb { width: 84px; height: 84px; object-fit: cover; border-radius: 8px; flex-shrink: 0; background: var(--bg); display: grid; place-items: center; font-size: 2rem; }
+.thumb { width: 84px; height: 84px; object-fit: cover; border-radius: 8px; flex-shrink: 0; background: var(--soft); display: grid; place-items: center; font-size: 2rem; }
 .card h3 { margin: 6px 0 4px; font-size: 1.05rem; overflow-wrap: anywhere; }
 .snippet { margin: 0 0 4px; color: var(--muted); font-size: .92rem; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .more { position: absolute; top: 8px; right: 8px; width: 34px; height: 34px; border-radius: 8px; border: 0; background: transparent; cursor: pointer; font-size: 1.3rem; line-height: 1; color: var(--muted); }
@@ -83,7 +115,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 .kind-pick { display: flex; gap: 16px; }
 .kind-pick label { display: flex; gap: 6px; align-items: center; font-weight: 600; }
-.photo { width: 100%; max-height: 420px; object-fit: contain; background: var(--bg); border-radius: 10px; margin: 12px 0; }
+.photo { width: 100%; max-height: 420px; object-fit: contain; background: var(--soft); border-radius: 10px; margin: 12px 0; }
 dl { display: grid; grid-template-columns: 80px 1fr; gap: 6px 10px; }
 dt { color: var(--muted); } dd { margin: 0; overflow-wrap: anywhere; }
 .desc { white-space: pre-wrap; line-height: 1.6; overflow-wrap: anywhere; }
@@ -150,18 +182,30 @@ table.tt { border-collapse: collapse; width: 100%; min-width: 520px; font-size: 
 </style>
 </head>
 <body>
-<div class="top">
-  <header>
-    <span class="logo" id="home">가림고 EVERYTIME</span>
-    <div class="hbtns">
-      <button class="btn" id="goWrite" hidden>+ 글쓰기</button>
-      <button class="btn ghost" id="logout" hidden>로그아웃</button>
+<div class="layout">
+  <aside class="side">
+    <div class="box cafe">
+      <div class="emblem">가림</div>
+      <div>
+        <div class="name" id="home">가림고 EVERYTIME</div>
+        <div class="sub">가림고등학교 학생 커뮤니티</div>
+      </div>
     </div>
-  </header>
-  <nav class="main" id="nav" hidden></nav>
-  <div class="studybar" id="studybar" hidden></div>
+    <div class="box me" id="meBox" hidden>
+      <div class="who" id="meName"></div>
+      <div class="mebtns">
+        <button class="btn" id="goWrite" hidden>글쓰기</button>
+        <button class="btn ghost" id="logout">로그아웃</button>
+      </div>
+    </div>
+    <nav class="box main" id="nav" hidden></nav>
+    <div class="box studybar" id="studybar" hidden></div>
+  </aside>
+  <div class="content">
+    <div class="boardhead" id="boardHead" hidden></div>
+    <main id="app"><div class="empty">불러오는 중…</div></main>
+  </div>
 </div>
-<main id="app"><div class="empty">불러오는 중…</div></main>
 <div class="toast" id="toast" hidden></div>
 <div class="focus" id="focus" hidden></div>
 
@@ -222,6 +266,15 @@ const TABS = [
   ["lost", "분실물"], ["free", "자유게시판"], ["meal", "급식"],
   ["time", "시간표"], ["event", "행사"], ["study", "공부방"],
 ];
+const MENU_GROUPS = [["게시판", ["lost", "free"]], ["학교생활", ["meal", "time", "event"]], ["공부", ["study"]]];
+const BOARD_INFO = {
+  lost: ["분실물 게시판", "잃어버린 물건, 주운 물건을 올리고 주인을 찾아요."],
+  free: ["자유게시판", "익명으로 자유롭게 이야기해요. 서로 존중해 주세요."],
+  meal: ["오늘의 급식", "가림고등학교 조식·중식·석식 메뉴예요."],
+  time: ["시간표", "학년과 반을 고르면 이번 주 시간표를 보여줘요."],
+  event: ["학교 행사", "학사일정과 학교 행사를 한눈에 봐요."],
+  study: ["공부방", "같이 공부하는 친구들과 공부 시간을 재요."],
+};
 
 let me = null;
 let tab = "lost";
@@ -283,8 +336,10 @@ onAuthStateChanged(auth, async user => {
     signOut(auth); return;
   }
   me = user;
-  $("logout").hidden = !user;
+  $("meBox").hidden = !user;
   $("nav").hidden = !user;
+  $("boardHead").hidden = !user;
+  if (user) $("meName").innerHTML = `<b>${isAdmin() ? "운영자" : "가림고 학생"}</b>${isAdmin() ? ` <span class="badge club">관리자</span>` : ""}<br><span class="meta">${esc(email)}</span>`;
   if (!user) {
     Object.values(subs).forEach(u => u?.()); for (const k in subs) delete subs[k];
     for (const k in loaded) loaded[k] = false;
@@ -320,9 +375,13 @@ function go(t) {
   store.set("tab", tab);
   view = "list"; openMenuKey = null;
   unsubComments?.(); unsubComments = null;
-  $("nav").innerHTML = TABS.map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? "on" : ""}">${l}</button>`).join("");
+  const label = Object.fromEntries(TABS);
+  $("nav").innerHTML = MENU_GROUPS.map(([g, keys]) =>
+    `<div class="grp">${g}</div>` + keys.map(k => `<button data-tab="${k}" class="${k === tab ? "on" : ""}">${label[k]}</button>`).join("")).join("");
+  const [title, sub] = BOARD_INFO[tab];
+  $("boardHead").innerHTML = `<h1>${title}</h1><p>${sub}</p>`;
   $("goWrite").hidden = !(tab === "lost" || tab === "free" || (tab === "event" && isAdmin()));
-  $("goWrite").textContent = tab === "event" ? "+ 행사 등록" : "+ 글쓰기";
+  $("goWrite").textContent = tab === "event" ? "행사 등록" : "글쓰기";
   updateStudybar();
   render();
 }
@@ -1007,7 +1066,6 @@ function renderStudy() {
   const active = document.activeElement?.id;
   if (!study.room) {
     app.innerHTML = `
-      <h2>공부방</h2>
       <div class="panel">
         <label class="write" style="display:grid;gap:4px;font-weight:600">공부방 닉네임
           <input id="nick" maxlength="12" value="${esc(store.get("nick", ""))}" placeholder="다른 사람에게 보이는 이름 (실명 말고 별명 추천)">
