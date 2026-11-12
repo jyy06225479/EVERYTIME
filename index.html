@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>가림고 EVERYTIME</title>
+<title>가림온</title>
 <script>try { document.documentElement.dataset.theme = JSON.parse(localStorage.getItem("theme")) || "light"; } catch (e) {}</script>
 <!--
   가림고등학교 학교 커뮤니티
@@ -265,7 +265,7 @@ table.tt { border-collapse: collapse; width: 100%; min-width: 520px; font-size: 
     <div class="box cafe">
       <div class="emblem">가림</div>
       <div>
-        <div class="name" id="home">가림고 EVERYTIME</div>
+        <div class="name" id="home">가림온</div>
         <div class="sub">가림고등학교 학생 커뮤니티</div>
       </div>
     </div>
@@ -366,9 +366,9 @@ const TABS = [
 ];
 const MENU_GROUPS = [
   ["환영 및 공지", ["notice", "classnotice"]],
-  ["게시판", ["lost", "free", "grade1", "grade2", "grade3", "studyboard"]],
+  ["게시판", ["lost", "free", "grade1", "grade2", "grade3"]],
   ["학교생활", ["meal", "time", "event"]],
-  ["공부", ["study"]],
+  ["공부", ["studyboard", "study"]],
 ];
 // 관리자만 쓸 수 있는 제목 색 (보안 규칙의 titleColor 목록과 같게 유지)
 const TITLE_COLORS = {
@@ -377,7 +377,7 @@ const TITLE_COLORS = {
 };
 const BOARD_INFO = {
   me: ["내 프로필", "내 이름, 내가 쓴 글, 화면 설정을 관리해요."],
-  notice: ["환영 및 공지", "가림고 EVERYTIME의 공지사항이에요. 글은 관리자만 올릴 수 있어요."],
+  notice: ["환영 및 공지", "가림온의 공지사항이에요. 글은 관리자만 올릴 수 있어요."],
   classnotice: ["학급 공지", "학급 공지를 올리고 확인해요."],
   lost: ["분실물 게시판", "잃어버린 물건, 주운 물건을 올리고 주인을 찾아요."],
   free: ["자유게시판", "익명으로 자유롭게 이야기해요. 서로 존중해 주세요."],
@@ -498,7 +498,7 @@ onAuthStateChanged(auth, async user => {
 function renderLogin() {
   app.innerHTML = `
     <div class="panel login">
-      <h2>가림고 EVERYTIME</h2>
+      <h2>가림온</h2>
       <p>분실물 찾기, 자유게시판, 급식과 시간표, 학교 행사, 같이 공부하는 공부방까지.<br>
       학교 구글 계정(${esc(ALLOWED_PREFIX)}…@${esc(ALLOWED_DOMAIN)})으로 로그인해주세요.<br>
       게시판에는 익명으로 표시돼요.</p>
@@ -775,7 +775,7 @@ function renderBoardList() {
   const shown = sortPosts(data[coll]).filter(p => !q || (p.title + " " + p.body).toLowerCase().includes(q));
   const welcome = coll === "notice" ? `
     <div class="panel welcome">
-      <h2>가림고 EVERYTIME에 오신 걸 환영해요</h2>
+      <h2>가림온에 오신 걸 환영해요</h2>
       <p>가림고등학교 학생들끼리 쓰는 학교 커뮤니티예요. 모든 글과 댓글은 익명으로 보여요.</p>
       <div class="quick">
         <button class="btn gray" data-go="lost">분실물 찾기</button>
