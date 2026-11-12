@@ -151,7 +151,9 @@ function fail(e) {
 
 // ===== 로그인 =====
 const provider = new GoogleAuthProvider();
-if (ALLOWED_DOMAIN) provider.setCustomParameters({ hd: ALLOWED_DOMAIN });
+// 항상 계정 선택 창을 보여줌 (학교 계정인지는 로그인 후에 확인 + 보안 규칙에서 막음)
+// ※ hd(도메인 힌트)를 넣으면 교육청 로그인(SAML)으로 강제로 넘어가 500 오류가 나서 쓰지 않아요.
+provider.setCustomParameters({ prompt: "select_account" });
 
 onAuthStateChanged(auth, user => {
   const email = (user?.email || "").toLowerCase();
