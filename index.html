@@ -103,9 +103,11 @@ const firebaseConfig = {
 };
 
 // ===== 학교에 맞게 바꿔서 쓰세요 =====
-// 학교 계정만 받으려면 학교 이메일 도메인을 적으세요. 예: "school.go.kr"  (빈칸이면 모든 구글 계정 허용)
-// ※ 보안 규칙(firestore.rules)에도 같은 도메인을 적어야 진짜로 막혀요.
-const ALLOWED_DOMAIN = "";
+// 학교 계정만 받기: 이메일이 ALLOWED_PREFIX 로 시작하고 @ALLOWED_DOMAIN 으로 끝나야 로그인 가능
+// gclass.ice.go.kr 은 인천 전체 학교가 같이 쓰는 도메인이라, 우리 학교 앞부분(kko58-)까지 확인해요.
+// ※ 보안 규칙(firestore.rules)에도 같은 조건을 적어야 진짜로 막혀요.
+const ALLOWED_DOMAIN = "gclass.ice.go.kr";
+const ALLOWED_PREFIX = "kko58-";
 // 관리자(선생님, 학생회 등) 이메일 → 남의 글도 삭제 가능. 보안 규칙에도 같은 이메일을 적으세요.
 const ADMIN_EMAILS = [];
 const CATEGORIES = ["전자기기", "필기구", "의류", "지갑/카드", "책/노트", "물병/텀블러", "기타"];
@@ -152,8 +154,10 @@ const provider = new GoogleAuthProvider();
 if (ALLOWED_DOMAIN) provider.setCustomParameters({ hd: ALLOWED_DOMAIN });
 
 onAuthStateChanged(auth, user => {
-  if (user && ALLOWED_DOMAIN && !user.email.endsWith("@" + ALLOWED_DOMAIN)) {
-    toast(`@${ALLOWED_DOMAIN} 학교 계정으로만 로그인할 수 있어요.`);
+  const email = (user?.email || "").toLowerCase();
+  const isSchool = email.startsWith(ALLOWED_PREFIX) && email.endsWith("@" + ALLOWED_DOMAIN);
+  if (user && ALLOWED_DOMAIN && !isSchool && !ADMIN_EMAILS.includes(email)) {
+    toast("우리 학교 계정(" + ALLOWED_PREFIX + "…@" + ALLOWED_DOMAIN + ")으로만 로그인할 수 있어요.");
     signOut(auth); return;
   }
   me = user;
@@ -179,7 +183,7 @@ function renderLogin() {
     <div class="panel login">
       <h2>우리학교 분실물 게시판</h2>
       <p>잃어버린 물건, 주운 물건을 올리고 찾아요.<br>
-      ${ALLOWED_DOMAIN ? `@${esc(ALLOWED_DOMAIN)} 학교 계정으로 로그인해주세요.` : "구글 계정으로 로그인해주세요."}<br>
+      ${ALLOWED_DOMAIN ? `학교 구글 계정(${esc(ALLOWED_PREFIX)}…@${esc(ALLOWED_DOMAIN)})으로 로그인해주세요.` : "구글 계정으로 로그인해주세요."}<br>
       게시판에는 익명으로 표시돼요.</p>
       <button class="btn big" id="loginBtn">구글로 로그인</button>
       ${location.protocol === "file:" ? `<p class="err" style="margin-top:12px">지금은 파일로 열려 있어서 로그인이 안 돼요. 웹에 올린 주소로 접속해주세요.</p>` : ""}
