@@ -87,6 +87,24 @@ nav.main .item.on { color: var(--accent); font-weight: 700; border-left-color: v
 .author-pick { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
 .author-pick label { display: flex; gap: 6px; align-items: center; font-weight: 600; }
 .named { color: var(--fg); font-weight: 700; }
+.sortseg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex-shrink: 0; }
+.sortseg button { background: var(--card); border: 0; padding: 8px 12px; cursor: pointer; color: var(--muted); }
+.sortseg button.on { background: var(--fg); color: var(--bg); font-weight: 700; }
+.stats { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.likebtn { display: inline-flex; gap: 6px; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 7px 16px; cursor: pointer; font-weight: 700; }
+.likebtn .h { color: var(--muted); font-size: 1.05rem; line-height: 1; }
+.likebtn.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.likebtn.on .h { color: var(--accent); }
+.likebtn:disabled { opacity: .6; }
+.cacts { display: inline-flex; gap: 8px; margin-left: 4px; }
+.cacts button { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: .8rem; padding: 0; }
+.cacts button:hover { color: var(--fg); text-decoration: underline; }
+.replies { margin: 6px 0 2px 18px; padding-left: 12px; border-left: 2px solid var(--line); }
+.replies .comment { padding: 6px 0; border-bottom: 0; }
+.reply-mark { color: var(--muted); margin-right: 4px; }
+.comment.gone > p { color: var(--muted); font-style: italic; margin: 0; }
+.rform { display: flex; gap: 6px; margin: 6px 0 4px 18px; }
+.rform textarea { flex: 1; min-width: 0; }
 .welcome h2 { margin: 0 0 6px; font-size: 1.2rem; }
 .welcome p { margin: 0 0 12px; line-height: 1.6; }
 .welcome .quick { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
@@ -373,6 +391,10 @@ let openMenuKey = null, menuSure = false;
 let lostFilter = { kind: "", q: "", category: "", showResolved: false };
 const boardQ = {};
 const detailCache = {};
+const likedCache = {};             // "컬렉션/글id" → 내가 좋아요 눌렀는지
+let sortMode = "new";              // new = 최신순, hot = 인기순
+let replyTo = null;                // 답글 다는 중인 댓글 id
+let viewed = null;                 // 조회수 중복 방지 (이 브라우저 기준, 처음 쓸 때 불러옴)
 let myName = "";
 let menuColor = false;
 
@@ -384,6 +406,15 @@ const kindLabel = k => k === "lost" ? "잃어버렸어요" : "주웠어요";
 const titleStyle = p => TITLE_COLORS[p.titleColor] ? ` style="color:${TITLE_COLORS[p.titleColor][1]}"` : "";
 const pinBadge = p => p.pinned ? `<span class="badge pin">공지</span>` : "";
 const writer = p => p.authorName ? `<span class="named">${esc(p.authorName)}</span>` : "익명";
+// 인기 점수: 좋아요 1개 = 조회 5번. 공지는 따로 맨 위
+const hotScore = p => (Number(p.likeCount) || 0) * 5 + (Number(p.viewCount) || 0) + (Number(p.commentCount) || 0) * 2;
+const sortPosts = arr => sortMode === "hot"
+  ? [...arr].sort((a, b) => (b.pinned === true) - (a.pinned === true) || hotScore(b) - hotScore(a) || tsOf(b) - tsOf(a))
+  : arr;
+const statLine = p => `조회 ${Number(p.viewCount) || 0} · ♥ ${Number(p.likeCount) || 0} · 💬 ${Number(p.commentCount) || 0}`;
+const sortSeg = () => `<div class="sortseg" role="group" aria-label="정렬">
+  <button type="button" data-sort="new" class="${sortMode === "new" ? "on" : ""}">최신순</button>
+  <button type="button" data-sort="hot" class="${sortMode === "hot" ? "on" : ""}">인기순</button></div>`;
 const tsOf = d => d.createdAt?.toMillis ? d.createdAt.toMillis() : Date.now() + 1e12;   // 막 올린 글(시간 미정)은 맨 앞
 const ADMINS = ADMIN_EMAILS.map(e => String(e).trim().toLowerCase());
 const isAdmin = () => !!me && ADMINS.includes((me.email || "").toLowerCase());
@@ -501,6 +532,7 @@ $("home").onclick = () => me ? go(HOME_TAB) : renderLogin();
 $("boardHead").addEventListener("click", e => { if (e.target.closest("#goWrite")) { view = "write"; openMenuKey = null; render(); } });
 $("logout").onclick = async () => { await leaveRoom(); signOut(auth); };
 document.addEventListener("click", e => { const g = e.target.closest("[data-go]"); if (g && me) go(g.dataset.go); });
+document.addEventListener("click", e => { const b = e.target.closest("[data-sort]"); if (b) { sortMode = b.dataset.sort; render(); } });
 
 function render() {
   if (!me) return renderLogin();
@@ -628,7 +660,7 @@ async function deleteItem(coll, id) {
 function renderLostList() {
   ensure("posts");
   const f = lostFilter, q = f.q.trim().toLowerCase();
-  const shown = data.posts
+  const shown = sortPosts(data.posts)
     .filter(p => p.pinned || !f.kind || p.kind === f.kind)
     .filter(p => p.pinned || !f.category || p.category === f.category)
     .filter(p => p.pinned || f.showResolved || !p.resolved)
@@ -642,6 +674,7 @@ function renderLostList() {
       <input id="q" class="grow" placeholder="물건이나 장소로 검색 (예: 이어폰, 체육관)" value="${esc(f.q)}">
       <select id="fCat">${options(CATEGORIES, f.category, "종류 전체")}</select>
       <label class="check"><input type="checkbox" id="fRes" ${f.showResolved ? "checked" : ""}> 해결된 글 포함</label>
+      ${sortSeg()}
     </div>
     <div class="list">
       ${!loaded.posts ? `<div class="empty">불러오는 중…</div>` : shown.length ? shown.map(p => `
@@ -651,7 +684,8 @@ function renderLostList() {
             <div>
               ${pinBadge(p)}<span class="badge ${p.kind === "lost" ? "lost" : "found"}">${kindLabel(p.kind)}</span>${p.resolved ? `<span class="badge resolved">해결됨</span>` : ""}
               <h3${titleStyle(p)}>${esc(p.title)}</h3>
-              <p class="meta">${p.authorName ? writer(p) + " · " : ""}${esc(p.category)} · ${esc(p.location)} · ${esc(p.date)} · 💬 ${Number(p.commentCount) || 0}</p>
+              <p class="meta">${p.authorName ? writer(p) + " · " : ""}${esc(p.category)} · ${esc(p.location)} · ${esc(p.date)}</p>
+              <p class="meta">${statLine(p)}</p>
             </div>
           </button>
           ${moreButton("posts", p)}
@@ -716,7 +750,7 @@ function renderBoardList() {
   const coll = tab;
   ensure(coll);
   const qv = boardQ[coll] || "", q = qv.trim().toLowerCase();
-  const shown = data[coll].filter(p => !q || (p.title + " " + p.body).toLowerCase().includes(q));
+  const shown = sortPosts(data[coll]).filter(p => !q || (p.title + " " + p.body).toLowerCase().includes(q));
   const welcome = coll === "notice" ? `
     <div class="panel welcome">
       <h2>가림고 EVERYTIME에 오신 걸 환영해요</h2>
@@ -730,7 +764,7 @@ function renderBoardList() {
       <p class="meta">욕설, 비방, 다른 사람 사진이나 개인정보를 올리면 관리자가 글을 지울 수 있어요.</p>
     </div>` : "";
   app.innerHTML = welcome + `
-    <div class="filters"><input id="q" class="grow" placeholder="${esc(BOARD_INFO[coll][0])} 검색" value="${esc(qv)}"></div>
+    <div class="filters"><input id="q" class="grow" placeholder="${esc(BOARD_INFO[coll][0])} 검색" value="${esc(qv)}">${sortSeg()}</div>
     <div class="list">
       ${!loaded[coll] ? `<div class="empty">불러오는 중…</div>` : shown.length ? shown.map(p => `
         <div class="cardwrap">
@@ -739,7 +773,7 @@ function renderBoardList() {
               ${p.pinned ? `<div>${pinBadge(p)}</div>` : ""}
               <h3 style="margin-top:${p.pinned ? "6px" : "0"};${TITLE_COLORS[p.titleColor] ? "color:" + TITLE_COLORS[p.titleColor][1] : ""}">${esc(p.title)}</h3>
               <p class="snippet">${esc(p.body)}</p>
-              <p class="meta">${writer(p)}${p.uid === me.uid ? " (내 글)" : ""} · ${fmt(p.createdAt)} · 💬 ${Number(p.commentCount) || 0}</p>
+              <p class="meta">${writer(p)}${p.uid === me.uid ? " (내 글)" : ""} · ${fmt(p.createdAt)} · ${statLine(p)}</p>
             </div>
             ${safeImg(p.image) ? `<img class="thumb" src="${safeImg(p.image)}" alt="">` : ""}
           </button>
@@ -879,7 +913,21 @@ async function shrinkImage(file) {
 //  글 상세 (분실물·자유게시판 공통) + 댓글
 // =====================================================================
 function openDetail(coll, id) {
-  view = "detail"; currentColl = coll; currentId = id; comments = []; openMenuKey = null;
+  view = "detail"; currentColl = coll; currentId = id; comments = []; openMenuKey = null; replyTo = null;
+  const key = coll + "/" + id;
+  // 조회수: 다른 사람 글을 목록에서 열 때만, 같은 브라우저에서 한 글은 한 번만 (내 글은 세지 않음)
+  const known = data[coll].find(x => x.id === id);
+  viewed ??= new Set(store.get("viewed", []));
+  if (known && known.uid !== me.uid && !viewed.has(key)) {
+    viewed.add(key); store.set("viewed", [...viewed].slice(-500));
+    updateDoc(doc(fs, coll, id), { viewCount: increment(1) }).catch(e => console.warn("조회수", e));
+  }
+  if (!(key in likedCache)) {
+    likedCache[key] = false;
+    getDoc(doc(fs, coll, id, "likes", me.uid))
+      .then(d => { likedCache[key] = d.exists(); if (view === "detail" && currentId === id) renderDetail(); })
+      .catch(e => console.warn("좋아요 확인", e));
+  }
   unsubComments?.();
   unsubComments = onSnapshot(query(collection(fs, coll, id, "comments"), orderBy("createdAt")), snap => {
     comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -906,8 +954,37 @@ function renderDetail() {
   }
   const mine = p.uid === me.uid;
   const nums = {}; let n = 0;
-  const nameOf = uid => uid === p.uid ? "글쓴이" : "익명" + (nums[uid] ??= ++n);
+  comments.forEach(c => { if (c.uid !== p.uid) nums[c.uid] ??= ++n; });   // 처음 댓글 단 순서대로 익명1, 익명2…
+  const nameOf = uid => uid === p.uid ? "글쓴이" : "익명" + nums[uid];
   const draft = $("cText")?.value || "";
+  const rdraft = $("rText")?.value || "";
+  const focusId = document.activeElement?.id;
+  const liked = !!likedCache[key];
+  // 댓글 묶기: 원댓글 + 그 아래 답글 (답글의 답글은 같은 원댓글 아래로)
+  const tops = comments.filter(c => !c.parentId);
+  const byParent = {};
+  comments.filter(c => c.parentId).forEach(c => (byParent[c.parentId] ??= []).push(c));
+  const goneParents = Object.keys(byParent).filter(pid => !tops.some(t => t.id === pid));
+  const canDel = c => c.uid === me.uid || mine || isAdmin();
+  const one = (c, isReply) => `
+    <div class="comment">
+      ${isReply ? `<span class="reply-mark" aria-hidden="true">↳</span>` : ""}<b class="${c.uid === p.uid ? "writer" : ""}">${nameOf(c.uid)}</b> <span class="meta">${fmt(c.createdAt)}</span>
+      <span class="cacts">
+        <button data-reply="${esc(isReply ? c.parentId : c.id)}">답글</button>
+        ${canDel(c) ? `<button class="cdel" data-cid="${esc(c.id)}">삭제</button>` : ""}
+      </span>
+      <p>${esc(c.text)}</p>
+    </div>`;
+  const replyForm = pid => replyTo === pid ? `
+    <form class="rform" id="rForm">
+      <textarea id="rText" rows="2" maxlength="500" placeholder="답글 남기기">${esc(rdraft)}</textarea>
+      <button class="btn" id="rSubmit">등록</button>
+      <button type="button" class="btn gray" id="rCancel">취소</button>
+    </form>` : "";
+  const thread = (top, pid) => `
+    ${top}
+    ${(byParent[pid] || []).length ? `<div class="replies">${byParent[pid].map(r => one(r, true)).join("")}</div>` : ""}
+    ${replyForm(pid)}`;
   const body = coll === "posts" ? `
       ${pinBadge(p)}<span class="badge ${p.kind === "lost" ? "lost" : "found"}">${kindLabel(p.kind)}</span>${p.resolved ? `<span class="badge resolved">해결됨</span>` : ""}
       <h2${titleStyle(p)}>${esc(p.title)}</h2>
@@ -930,6 +1007,10 @@ function renderDetail() {
     <button class="back" id="back">← 목록으로</button>
     <article class="panel">
       ${body}
+      <div class="stats">
+        <button class="likebtn ${liked ? "on" : ""}" id="likeBtn" aria-pressed="${liked}"><span class="h" aria-hidden="true">${liked ? "♥" : "♡"}</span>좋아요 ${Number(p.likeCount) || 0}</button>
+        <span class="meta">조회 ${Number(p.viewCount) || 0}</span>
+      </div>
       ${mine || isAdmin() ? `
       <div class="owner">
         ${coll === "posts" ? `<button class="btn" id="resolve">${p.resolved ? "해결 취소" : "찾았어요 (해결 처리)"}</button>` : ""}
@@ -939,12 +1020,8 @@ function renderDetail() {
     </article>
     <section class="panel">
       <h3>댓글 ${comments.length}</h3>
-      ${comments.map(c => `
-        <div class="comment">
-          <b class="${c.uid === p.uid ? "writer" : ""}">${nameOf(c.uid)}</b> <span class="meta">${fmt(c.createdAt)}</span>
-          ${c.uid === me.uid || mine || isAdmin() ? `<button class="cdel" data-cid="${esc(c.id)}">삭제</button>` : ""}
-          <p>${esc(c.text)}</p>
-        </div>`).join("")}
+      ${tops.map(c => thread(one(c, false), c.id)).join("")}
+      ${goneParents.map(pid => thread(`<div class="comment gone"><p>삭제된 댓글이에요.</p></div>`, pid)).join("")}
       <form class="cform" id="cForm">
         <textarea id="cText" rows="2" maxlength="500" placeholder="댓글 남기기">${esc(draft)}</textarea>
         <button class="btn" id="cSubmit">등록</button>
@@ -964,6 +1041,42 @@ function renderDetail() {
   });
   app.querySelectorAll(".cdel").forEach(b => b.onclick = () =>
     deleteDoc(doc(fs, coll, p.id, "comments", b.dataset.cid)).catch(fail));
+  // 좋아요: likes/{내 uid} 문서 + 글의 likeCount 를 함께 바꿈 (한 사람 한 번)
+  $("likeBtn").onclick = async () => {
+    const btn = $("likeBtn"); btn.disabled = true;
+    const was = !!likedCache[key];
+    try {
+      const batch = writeBatch(fs);
+      const likeRef = doc(fs, coll, p.id, "likes", me.uid);
+      if (was) batch.delete(likeRef); else batch.set(likeRef, { createdAt: serverTimestamp() });
+      batch.update(postRef, { likeCount: increment(was ? -1 : 1) });
+      await batch.commit();
+      likedCache[key] = !was;
+      if (detailCache[key]) detailCache[key] = { ...detailCache[key], likeCount: (Number(detailCache[key].likeCount) || 0) + (was ? -1 : 1) };
+    } catch (err) { fail(err); }
+    if (view === "detail" && currentColl + "/" + currentId === key) renderDetail();
+  };
+  // 답글
+  app.querySelectorAll("[data-reply]").forEach(b => b.onclick = () => {
+    replyTo = replyTo === b.dataset.reply ? null : b.dataset.reply; renderDetail(); $("rText")?.focus();
+  });
+  $("rCancel")?.addEventListener("click", () => { replyTo = null; renderDetail(); });
+  $("rForm")?.addEventListener("submit", async e => {
+    e.preventDefault();
+    const text = $("rText").value.trim();
+    if (!text || !replyTo) return;
+    $("rSubmit").disabled = true;
+    try {
+      const batch = writeBatch(fs);
+      batch.set(doc(collection(fs, coll, p.id, "comments")), { text, uid: me.uid, createdAt: serverTimestamp(), parentId: replyTo });
+      batch.update(postRef, { commentCount: increment(1) });
+      await batch.commit();
+      replyTo = null; if ($("rText")) $("rText").value = "";
+      renderDetail();
+    } catch (err) { fail(err); if ($("rSubmit")) $("rSubmit").disabled = false; }
+  });
+  // 다시 그려도 쓰던 칸에 커서 유지
+  if (focusId && $(focusId) && /^(cText|rText)$/.test(focusId)) { const el = $(focusId); el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
   $("cForm").onsubmit = async e => {
     e.preventDefault();
     const text = $("cText").value.trim();
@@ -1079,7 +1192,7 @@ async function loadMyPosts() {
       <button class="myrow" data-coll="${esc(p.coll)}" data-id="${esc(p.id)}">
         <span class="b">${esc(nameOfColl(p.coll))}</span>
         <span class="t"${titleStyle(p)}>${esc(p.title)}</span>
-        <span class="meta">${p.authorName ? "이름 공개" : "익명"} · ${fmt(p.createdAt).slice(0, 10)} · 💬 ${Number(p.commentCount) || 0}</span>
+        <span class="meta">${p.authorName ? "이름 공개" : "익명"} · ${fmt(p.createdAt).slice(0, 10)} · ${statLine(p)}</span>
       </button>`).join("") : `<p class="meta">아직 쓴 글이 없어요.</p>`;
     $("myPosts").querySelectorAll(".myrow").forEach(b => b.onclick = () => {
       go(b.dataset.coll === "posts" ? "lost" : b.dataset.coll);
