@@ -109,7 +109,7 @@ const firebaseConfig = {
 const ALLOWED_DOMAIN = "gclass.ice.go.kr";
 const ALLOWED_PREFIX = "kko58-";
 // 관리자(선생님, 학생회 등) 이메일 → 남의 글도 삭제 가능. 보안 규칙에도 같은 이메일을 적으세요.
-const ADMIN_EMAILS = [];
+const ADMIN_EMAILS = ["jaung0622@gmail.com"];
 const CATEGORIES = ["전자기기", "필기구", "의류", "지갑/카드", "책/노트", "물병/텀블러", "기타"];
 const LOCATIONS  = ["교실", "복도", "체육관", "운동장", "급식실", "도서관", "화장실", "기타"];
 
@@ -131,7 +131,8 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const safeImg = s => typeof s === "string" && s.startsWith("data:image/") ? esc(s) : "";
 const kindLabel = k => k === "lost" ? "잃어버렸어요" : "주웠어요";
-const isAdmin = () => !!me && ADMIN_EMAILS.includes(me.email);
+const ADMINS = ADMIN_EMAILS.map(e => String(e).trim().toLowerCase());
+const isAdmin = () => !!me && ADMINS.includes((me.email || "").toLowerCase());
 const fmt = ts => {
   if (!ts?.toDate) return "방금";
   const d = ts.toDate(), p = n => String(n).padStart(2, "0");
@@ -158,7 +159,7 @@ provider.setCustomParameters({ prompt: "select_account" });
 onAuthStateChanged(auth, user => {
   const email = (user?.email || "").toLowerCase();
   const isSchool = email.startsWith(ALLOWED_PREFIX) && email.endsWith("@" + ALLOWED_DOMAIN);
-  if (user && ALLOWED_DOMAIN && !isSchool && !ADMIN_EMAILS.includes(email)) {
+  if (user && ALLOWED_DOMAIN && !isSchool && !ADMINS.includes(email)) {
     toast("우리 학교 계정(" + ALLOWED_PREFIX + "…@" + ALLOWED_DOMAIN + ")으로만 로그인할 수 있어요.");
     signOut(auth); return;
   }
